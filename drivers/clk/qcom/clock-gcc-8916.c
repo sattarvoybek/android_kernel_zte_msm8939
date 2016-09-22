@@ -1080,7 +1080,13 @@ static struct rcg_clk byte0_clk_src = {
 };
 
 static struct clk_freq_tbl ftbl_gcc_mdss_esc0_clk[] = {
-	F(  19200000,	      xo,   1,	  0,	0),
+  //zhangjian modify lpx 50ns -> 100ns, begin	
+  #ifdef CONFIG_F30_PLATFORM_8916
+  F(  9600000,	      xo,   2,	  0,	0),
+	#else 
+  F(  19200000,	      xo,   1,	  0,	0),
+	#endif
+  // end modify
 	F_END
 };
 

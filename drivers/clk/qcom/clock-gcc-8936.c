@@ -1363,7 +1363,19 @@ static struct rcg_clk byte1_clk_src = {
 };
 
 static struct clk_freq_tbl ftbl_gcc_mdss_esc0_1_clk[] = {
-	F(  19200000,	      gcc_xo,   1,	  0,	0),
+    //zhangjian modify lpx 50ns -> 100ns, begin	
+   
+    #ifdef CONFIG_ZTE_LCD_P8939
+        #ifdef CONFIG_ZTE_NOT_INCELL_LCD
+        F(  19200000,             gcc_xo,   1,        0,    0),
+        #else
+        F(  9600000,	      gcc_xo,   2,	  0,	0),
+        #endif
+    #else
+    F(  19200000,	      gcc_xo,   1,	  0,	0),
+    #endif
+    
+    // modify end
 	F_END
 };
 

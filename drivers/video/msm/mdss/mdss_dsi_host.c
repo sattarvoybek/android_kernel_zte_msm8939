@@ -2069,7 +2069,10 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 		}
 	}
 
-	if (req->flags & CMD_REQ_HS_MODE)
+    //if (req->flags & CMD_REQ_HS_MODE) //zhangjian delete
+        #ifdef CONFIG_ZTE_NOT_INCELL_LCD
+         if (req->flags & CMD_REQ_HS_MODE)
+        #endif
 		mdss_dsi_set_tx_power_mode(0, &ctrl->panel_data);
 
 	if (req->flags & CMD_REQ_RX)
@@ -2077,7 +2080,10 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	else
 		ret = mdss_dsi_cmdlist_tx(ctrl, req);
 
-	if (req->flags & CMD_REQ_HS_MODE)
+   // if (req->flags & CMD_REQ_HS_MODE) //zhangjian delete
+        #ifdef CONFIG_ZTE_NOT_INCELL_LCD
+        if (req->flags & CMD_REQ_HS_MODE)
+        #endif
 		mdss_dsi_set_tx_power_mode(1, &ctrl->panel_data);
 
 	if (ctrl->mdss_util->iommu_ctrl)

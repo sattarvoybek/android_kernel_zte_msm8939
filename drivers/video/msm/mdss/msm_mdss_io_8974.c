@@ -818,7 +818,19 @@ static void mdss_dsi_link_clk_unprepare(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 
 static int mdss_dsi_link_clk_set_rate(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
-	u32 esc_clk_rate = 19200000;
+    //zhangjian modify lpx 50ns -> 100ns, begin	
+
+    #ifdef CONFIG_ZTE_LCD_P8939
+        #ifdef CONFIG_ZTE_NOT_INCELL_LCD
+        u32 esc_clk_rate = 19200000;
+        #else
+        u32 esc_clk_rate = 9600000;
+        #endif
+    #else
+    u32 esc_clk_rate = 19200000;
+    #endif
+    
+    //mdofy end
 	int rc = 0;
 
 	if (!ctrl_pdata) {

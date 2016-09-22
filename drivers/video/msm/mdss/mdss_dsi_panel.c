@@ -33,7 +33,38 @@
 #define NT35596_MAX_ERR_CNT 2
 
 #define MIN_REFRESH_RATE 30
+struct mdss_dsi_ctrl_pdata *g_ctrl_pdata ;//zhangjian add
+//zhangjian add for tp check
+static char TP_reset_cmd_ed[2] = {0xed, 0x00};
+static struct dsi_cmd_desc TP_reset_cmd_ed_cmds ={{DTYPE_DCS_WRITE, 1, 0, 0, 20, sizeof(TP_reset_cmd_ed)}, TP_reset_cmd_ed};
+static void TP_reset_ed_dcs(struct mdss_dsi_ctrl_pdata *ctrl)
+{
+	struct dcs_cmd_req cmdreq;
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	cmdreq.cmds = &TP_reset_cmd_ed_cmds;
+	cmdreq.cmds_cnt = 1;
+	
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
+	cmdreq.rlen = 0;
+	cmdreq.cb = NULL;
 
+	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+}
+void TP_check_reset_ed_dcs(void)
+{  
+  struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+  ctrl_pdata = g_ctrl_pdata;
+  pr_err("%s: TP_ed_dcs_reset\n", __func__);
+  if (ctrl_pdata == NULL) {
+      pr_err("%s: Invalid input data\n", __func__);
+      return;
+  }   
+  			
+  TP_reset_ed_dcs(ctrl_pdata);
+}
+EXPORT_SYMBOL(TP_check_reset_ed_dcs);
+//add end
+char LcdPanelName[50] = {0};//zhangjian add for adb lcd info read
 DEFINE_LED_TRIGGER(bl_led_trigger);
 
 void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
@@ -174,13 +205,34 @@ static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
 
 	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
 }
-
+//zhangjian modify
+#if 0
 static char led_pwm1[2] = {0x51, 0x0};	/* DTYPE_DCS_WRITE1 */
 static struct dsi_cmd_desc backlight_cmd = {
 	{DTYPE_DCS_WRITE1, 1, 0, 0, 1, sizeof(led_pwm1)},
 	led_pwm1
 };
+#else
+static char CABC_0x51_off[2] = {0x51, 0x00};
+static char CABC_0x53_off[2] = {0x53, 0x00};	
+static struct dsi_cmd_desc display_off_CABC_backlight_cmds[] = {
+  {{DTYPE_DCS_LWRITE, 1, 0, 0, 20, sizeof(CABC_0x51_off)}, CABC_0x51_off},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 20, sizeof(CABC_0x53_off)}, CABC_0x53_off }
+	};
 
+static char CABC_0x51[2]={0x51,0xff};
+/*begin ,yangchaofeng add for F30-LCD*/
+#ifdef CONFIG_ZTE_NOT_INCELL_LCD
+static char CABC_0x53[2]={0x53,0x24};
+#else
+static char CABC_0x53[2]={0x53,0x2c};
+#endif
+static struct dsi_cmd_desc CABC_backlight_cmds[] = {
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 20, sizeof(CABC_0x51)}, CABC_0x51},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 20, sizeof(CABC_0x53)}, CABC_0x53}
+};
+#endif
+//modify end
 static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
 	struct dcs_cmd_req cmdreq;
@@ -192,13 +244,33 @@ static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 			return;
 	}
 
-	pr_debug("%s: level=%d\n", __func__, level);
-
+	//zhangjian add
+    //level = (level*80)/100;
+    if ( (level < 10) && (level != 0))    
+        level = 10;
+  //add end
+	pr_err(LCD_DEVICE"%s: level=%d\n", __func__, level);
+	//zhangjian modify 
+	#if 0	
 	led_pwm1[1] = (unsigned char)level;
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = &backlight_cmd;
 	cmdreq.cmds_cnt = 1;
+	#else	
+	memset(&cmdreq, 0, sizeof(cmdreq));
+  if (level == 0)
+  { 
+      cmdreq.cmds = display_off_CABC_backlight_cmds;
+  }
+  else
+  {
+     CABC_0x51[1] = (unsigned char)level;
+     cmdreq.cmds = CABC_backlight_cmds;
+  }
+  cmdreq.cmds_cnt = 2;
+	#endif
+	//end modify
 	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
 	cmdreq.rlen = 0;
 	cmdreq.cb = NULL;
@@ -256,6 +328,124 @@ disp_en_gpio_err:
 	return rc;
 }
 
+//zhangjian add for 8939
+#ifdef CONFIG_ZTE_LCD_P8939
+/*begin ,yangchaofeng add for F30-LCD power*/
+#ifdef CONFIG_ZTE_NOT_INCELL_LCD
+int mdss_dsi_panel_power_enable(struct mdss_panel_data *pdata, int enable)
+{
+    struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+    struct mdss_panel_info *pinfo = NULL;
+    int rc = 0;
+
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,panel_data);
+	pr_debug("%s: enable = %d\n", __func__, enable);
+
+	pinfo = &(ctrl_pdata->panel_data.panel_info);
+	if (enable)
+	{
+		pr_err(LCD_DEVICE"%s: enable disp_power_gpio not_incell\n",__func__);
+                gpio_set_value((ctrl_pdata->disp_vdddc_en_gpio), 1);
+                msleep(50);
+                gpio_set_value((ctrl_pdata->disp_vddio_en_gpio), 1);
+                msleep(5);
+                gpio_set_value((ctrl_pdata->disp_debug_mode_en_gpio), 1);
+                msleep(2);
+        }
+	else
+	{
+                pr_err(LCD_DEVICE"%s: disable disp_power_gpio not_incell\n",__func__);
+	}
+	return rc;
+}
+#else
+/*end ,yangchaofeng add for F30-LCD power*/
+int mdss_dsi_panel_power_enable(struct mdss_panel_data *pdata, int enable)
+{
+    struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+	struct mdss_panel_info *pinfo = NULL;
+	int rc = 0;
+    int gpio_value = 1;
+    
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+
+	pr_debug("%s: enable = %d\n", __func__, enable);
+	pinfo = &(ctrl_pdata->panel_data.panel_info);
+
+	if (enable) 
+	{    
+
+            if (gpio_is_valid(ctrl_pdata->disp_vdddc_en_gpio)) {
+        		rc = gpio_request(ctrl_pdata->disp_vdddc_en_gpio,
+        						"disp_vdddc_en_gpio");
+        		if (rc) {
+        			pr_err("request disp_vdddc_en_gpio failed, rc=%d\n",
+        				       rc);
+        		}
+                gpio_value = gpio_get_value((unsigned int)(ctrl_pdata->disp_vdddc_en_gpio));                
+                gpio_direction_output(ctrl_pdata->disp_vdddc_en_gpio, gpio_value);//config gpio to output
+                pr_err(LCD_DEVICE"%s: enable disp_vdddc_en_gpio \n", __func__);
+                gpio_set_value((ctrl_pdata->disp_vdddc_en_gpio), 1);
+                msleep(50);
+        	}
+
+            if (gpio_is_valid(ctrl_pdata->disp_vddio_en_gpio)) {
+        		rc = gpio_request(ctrl_pdata->disp_vddio_en_gpio,
+        						"disp_vddio_en_gpio");
+        		if (rc) {
+        			pr_err("request disp_vddio_en_gpio failed, rc=%d\n",
+        				       rc);
+        		}
+                gpio_value = gpio_get_value((unsigned int)(ctrl_pdata->disp_vddio_en_gpio));                
+                gpio_direction_output(ctrl_pdata->disp_vddio_en_gpio, gpio_value);//config gpio to output
+                pr_err(LCD_DEVICE"%s: enable disp_vddio_en_gpio \n", __func__);
+                gpio_set_value((ctrl_pdata->disp_vddio_en_gpio), 1);
+                msleep(5);
+        	}
+
+            if (gpio_is_valid(ctrl_pdata->disp_debug_mode_en_gpio)) {
+        		rc = gpio_request(ctrl_pdata->disp_debug_mode_en_gpio,
+        						"disp_debug_mode_en_gpio");
+        		if (rc) {
+        			pr_err("request disp_debug_mode_en_gpio failed, rc=%d\n",
+        				       rc);
+        		}
+                gpio_value = gpio_get_value((unsigned int)(ctrl_pdata->disp_debug_mode_en_gpio));
+                gpio_direction_output(ctrl_pdata->disp_debug_mode_en_gpio, gpio_value);//config gpio to output
+                pr_err(LCD_DEVICE"%s: enable disp_debug_mode_en_gpio \n", __func__);
+                gpio_set_value((ctrl_pdata->disp_debug_mode_en_gpio), 1);
+                msleep(2);
+        	}
+
+        	gpio_free(ctrl_pdata->disp_vddio_en_gpio);
+            gpio_free(ctrl_pdata->disp_vdddc_en_gpio);
+            gpio_free(ctrl_pdata->disp_debug_mode_en_gpio);
+      		//have_esd = 0;
+        }   
+		
+	else 
+	{		
+              pr_err(LCD_DEVICE"%s: disable disp_power_gpio incell \n", __func__);
+
+    
+        
+    }    
+	return rc;
+}
+#endif //add by yangchaofeng F30-LCD power
+#endif 
+//add end
 int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
@@ -293,18 +483,42 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		if (!pinfo->cont_splash_enabled) {
 			if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
 				gpio_set_value((ctrl_pdata->disp_en_gpio), 1);
-
-			for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
+      //zhangjian modify
+      #ifdef CONFIG_TP_WAKEUP_GESTURE
+      if (!lcd_get_tsc_gesture_state())
+      {
+		  pr_err(LCD_DEVICE"%s: lcd_get_tsc_gesture_state is 0 \n", __func__);
+          for (i = 0; i < pdata->panel_info.rst_seq_len; ++i)
+		  {
+              gpio_set_value((ctrl_pdata->rst_gpio), pdata->panel_info.rst_seq[i]);
+              if (pdata->panel_info.rst_seq[++i])
+              usleep(pinfo->rst_seq[i] * 1000);
+         }
+	 } 
+      #else
+               pr_err(LCD_DEVICE"%s: reset-pin enable not_incell\n",__func__);//add by yangchaofeng for debug lcd
+               for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
 				gpio_set_value((ctrl_pdata->rst_gpio),
 					pdata->panel_info.rst_seq[i]);
 				if (pdata->panel_info.rst_seq[++i])
 					usleep(pinfo->rst_seq[i] * 1000);
-			}
-
+			}   
+      #endif
+      //end modify
 			if (gpio_is_valid(ctrl_pdata->bklt_en_gpio))
 				gpio_set_value((ctrl_pdata->bklt_en_gpio), 1);
 		}
 
+
+		//zhangjian add for 8939
+        /*begin ,yangchaofeng modify for LCD not incell reset pin*/
+        #ifndef CONFIG_ZTE_NOT_INCELL_LCD
+                printk(LCD_DEVICE"%s: modifyed for incell reset-pin enable\n",__func__);
+	/*end ,yangchaofeng modify for LCD not incell reset pin*/
+        gpio_free(ctrl_pdata->rst_gpio);
+		#endif
+        //zhangjian add end
+        
 		if (gpio_is_valid(ctrl_pdata->mode_gpio)) {
 			if (pinfo->mode_gpio_state == MODE_GPIO_HIGH)
 				gpio_set_value((ctrl_pdata->mode_gpio), 1);
@@ -326,8 +540,15 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
 			gpio_free(ctrl_pdata->disp_en_gpio);
 		}
+		// zhangjian modify for 8939 LCD
+        /*begin ,yangchaofeng modify for LCD not incell reset pin*/
+        #ifdef CONFIG_ZTE_NOT_INCELL_LCD
+                printk(LCD_DEVICE"%s: modifyed for not_incell reset-pin disable\n",__func__);
+        /*end ,yangchaofeng modify for LCD not incell reset pin*/
 		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 		gpio_free(ctrl_pdata->rst_gpio);
+        #endif
+		//modify end
 		if (gpio_is_valid(ctrl_pdata->mode_gpio))
 			gpio_free(ctrl_pdata->mode_gpio);
 	}
@@ -616,10 +837,28 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			goto end;
 	}
-
-	if (ctrl->on_cmds.cmd_cnt)
-		mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
-
+  //zhangjian modify
+  #ifdef CONFIG_TP_WAKEUP_GESTURE
+  if (lcd_get_tsc_gesture_state())
+  {
+      pr_err(LCD_DEVICE"%s: on_cmds_wakeup_gesture\n", __func__);
+      pr_err(LCD_DEVICE"%s: ctrl->on_cmds_wakeup_gesture.cmd_cnt is %d\n", __func__,ctrl->on_cmds_wakeup_gesture.cmd_cnt);
+      if (ctrl->on_cmds_wakeup_gesture.cmd_cnt)
+	      mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds_wakeup_gesture);
+  }
+  else
+  {
+       pr_err(LCD_DEVICE"%s: on_cmds incell\n", __func__);
+	   pr_err("%s: ctrl->on_cmds.cmd_cnt is %d\n", __func__,ctrl->on_cmds.cmd_cnt);
+	   if (ctrl->on_cmds.cmd_cnt)
+		    mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+  }
+  #else
+  pr_err(LCD_DEVICE"%s: on_cmds not_incell\n",__func__);//add by yangchaofeng for debug lcd
+  if (ctrl->on_cmds.cmd_cnt)
+		    mdss_dsi_panel_cmds_send(ctrl, &ctrl->on_cmds);
+  #endif
+  //end modify
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_UNBLANK;
 	pr_debug("%s:-\n", __func__);
@@ -646,15 +885,84 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 		if (ctrl->ndx != DSI_CTRL_LEFT)
 			goto end;
 	}
-
-	if (ctrl->off_cmds.cmd_cnt)
-		mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
-
+  //zhangjian modify
+  #ifdef CONFIG_TP_WAKEUP_GESTURE
+  pr_err(LCD_DEVICE"%s: off_cmds incell\n",__func__);//add by yangchaofeng for debug lcd
+  if (lcd_get_tsc_gesture_state())
+  {
+     if (ctrl->off_cmds_wakeup_gesture.cmd_cnt)
+		    mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds_wakeup_gesture);
+  }
+  else
+  {
+	    if (ctrl->off_cmds.cmd_cnt)
+		     mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
+  }
+  #else
+   pr_err(LCD_DEVICE"%s: off_cmds not_incell\n",__func__);//add by yangchaofeng for debug lcd
+   if (ctrl->off_cmds.cmd_cnt)
+		     mdss_dsi_panel_cmds_send(ctrl, &ctrl->off_cmds);
+  #endif
+  //end modify
 end:
 	pinfo->blank_state = MDSS_PANEL_BLANK_BLANK;
 	pr_debug("%s:-\n", __func__);
 	return 0;
 }
+//zhangjian add for ce
+#ifdef CONFIG_LCD_DISPLAY_ENHANCE
+int  panel_set_enhance(struct mdss_panel_data *pdata, int ce_mode)
+{ 
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	printk("zhangjian:%s\n",__func__);
+	if (pdata == NULL) {
+		pr_err("%s: Invalid input data\n", __func__);
+		return -EINVAL;
+	}
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+	printk("zhangjian:ce_mode=%d\n",ce_mode);
+	switch(ce_mode)
+	{
+		case CE_DEFAULT:
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->CEdefault_cmds);
+			break;
+		case CE_BRIGHT:
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->CEbright_cmds);
+			break;		
+		default:
+			break;
+	}
+	return 0;
+}
+int  panel_set_CEenhance(int ce_mode)
+{ 
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	printk("zhangjian:%s\n",__func__);
+	ctrl = g_ctrl_pdata;
+	if (ctrl == NULL) {
+		pr_err("%s: Invalid input ctrldata\n", __func__);
+		return -EINVAL;
+	}
+	
+	printk("zhangjian:ce_mode=%d\n",ce_mode);
+	switch(ce_mode)
+	{
+		case CE_DEFAULT:
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->CEdefault_cmds);
+			break;
+		case CE_BRIGHT:
+			mdss_dsi_panel_cmds_send(ctrl, &ctrl->CEbright_cmds);
+			break;		
+		default:
+		    mdss_dsi_panel_cmds_send(ctrl, &ctrl->CEdefault_cmds);
+			break;
+	}
+	return 0;
+}
+#endif
+//zhangjian add end
+
 
 static int mdss_dsi_panel_low_power_config(struct mdss_panel_data *pdata,
 	int enable)
@@ -1615,7 +1923,23 @@ static int mdss_panel_parse_dt(struct device_node *np,
 
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds,
 		"qcom,mdss-dsi-off-command", "qcom,mdss-dsi-off-command-state");
+    //zhangjian add
+	#ifdef CONFIG_TP_WAKEUP_GESTURE	
+    mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->on_cmds_wakeup_gesture,
+		"qcom,mdss-dsi-on-command-wakeup-gesture", "qcom,mdss-dsi-on-command-wakeup-gesture-state");
 
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->off_cmds_wakeup_gesture,
+		"qcom,mdss-dsi-off-command-wakeup-gesture", "qcom,mdss-dsi-off-command-wakeup-gesture-state");
+	#endif
+    //add end
+    //zhangjian add for ce
+    #ifdef CONFIG_LCD_DISPLAY_ENHANCE
+    mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->CEdefault_cmds,
+		"qcom,mdss-dsi-CEdefault-command", "qcom,mdss-dsi-CEdefault-command-state");
+	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->CEbright_cmds,
+		"qcom,mdss-dsi-CEbright-command", "qcom,mdss-dsi-CEbright-command-state");
+    #endif
+    //zhangjian add end
 	mdss_dsi_parse_dcs_cmds(np, &ctrl_pdata->status_cmds,
 			"qcom,mdss-dsi-panel-status-command",
 				"qcom,mdss-dsi-panel-status-command-state");
@@ -1678,7 +2002,7 @@ int mdss_dsi_panel_init(struct device_node *node,
 		pr_err("%s: Invalid arguments\n", __func__);
 		return -ENODEV;
 	}
-
+    g_ctrl_pdata = ctrl_pdata;//zhangjian add for TP check
 	pinfo = &ctrl_pdata->panel_data.panel_info;
 
 	pr_debug("%s:%d\n", __func__, __LINE__);
@@ -1690,6 +2014,8 @@ int mdss_dsi_panel_init(struct device_node *node,
 	} else {
 		pr_info("%s: Panel Name = %s\n", __func__, panel_name);
 		strlcpy(&pinfo->panel_name[0], panel_name, MDSS_MAX_PANEL_LEN);
+		
+    strlcpy(LcdPanelName, panel_name, MDSS_MAX_PANEL_LEN);//zhangjian add adb read lcd info
 	}
 	rc = mdss_panel_parse_dt(node, ctrl_pdata);
 	if (rc) {
@@ -1708,6 +2034,11 @@ int mdss_dsi_panel_init(struct device_node *node,
 
 	ctrl_pdata->on = mdss_dsi_panel_on;
 	ctrl_pdata->off = mdss_dsi_panel_off;
+    //zhangjian add for ce
+    #ifdef CONFIG_LCD_DISPLAY_ENHANCE
+	ctrl_pdata->ce = panel_set_enhance; 
+    #endif
+    //zhangjian add end
 	ctrl_pdata->low_power_config = mdss_dsi_panel_low_power_config;
 	ctrl_pdata->panel_data.set_backlight = mdss_dsi_panel_bl_ctrl;
 	ctrl_pdata->switch_mode = mdss_dsi_panel_switch_mode;

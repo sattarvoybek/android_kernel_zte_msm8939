@@ -571,3 +571,8 @@ CONFIG_ZTE_HEADSET_GPIO=y
 CONFIG_ZTE_AKM_HIFI=y
 CONFIG_ZTE_OPEN_QCOM_I2S_QUARD=y
 #zte weiguohua add it for hifi chip requirement,end 20141030
+#zhangjian add for 8939 LCD
+CONFIG_ZTE_LCD_P8939=y
+CONFIG_TP_WAKEUP_GESTURE=y
+CONFIG_LCD_DISPLAY_ENHANCE=y
+#zhangjian add end

@@ -30,6 +30,333 @@
 #include "mdss_debug.h"
 
 #define XO_CLK_RATE	19200000
+//zhangjian add for ce
+#ifdef CONFIG_LCD_DISPLAY_ENHANCE
+extern int ce_pram;
+#endif
+//add end
+//zhangjian add for 8939
+#ifdef CONFIG_ZTE_LCD_P8939
+
+#define SYSFS_FOLDER_NAME "dsi_debug"
+#define BUFFER_LENGTH 32
+
+#define DSI_READ 0x06
+#define DSI_GENERIC_READ_1 0x14
+#define DSI_GENERIC_READ_2 0x24
+
+#define DSI_SHORT_WRITE_0 0x05
+#define DSI_SHORT_WRITE_1 0x15
+#define DSI_LONG_WRITE 0x39
+#define DSI_GENERIC_SHORT_WRITE_0 0x13
+#define DSI_GENERIC_SHORT_WRITE_1 0x23
+#define DSI_GENERIC_LONG_WRITE 0x29
+
+enum read_write {
+	CMD_READ = 0,
+	CMD_WRITE = 1,
+};
+
+struct dsi_debug {
+	unsigned char index;
+	unsigned char length;
+	unsigned char buffer[BUFFER_LENGTH];
+	unsigned char command_len;
+	unsigned char *command_buf;
+	struct kobject *sysfs_dir;
+	struct dsi_panel_cmds cmds;
+};
+
+//static unsigned char *mdss_dsi_base;
+
+static struct mdss_panel_data *gpdata;
+static struct dsi_debug debug;
+
+static void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
+		struct dsi_panel_cmds *pcmds, enum read_write rw)
+{
+	struct dcs_cmd_req cmdreq;
+
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	cmdreq.cmds = pcmds->cmds;
+	cmdreq.cmds_cnt = pcmds->cmd_cnt;
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_CLK_CTRL;
+	cmdreq.rlen = 0;
+	cmdreq.cb = NULL;
+
+	if (rw == CMD_READ) {
+		cmdreq.flags |= CMD_REQ_RX;
+		cmdreq.rlen = debug.length;
+
+        cmdreq.rbuf = ctrl->rx_buf.data;
+	}
+
+	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+
+	return;
+}
+
+static void do_read(unsigned char command, unsigned char data_type)
+{
+	unsigned char ii;
+	struct dsi_ctrl_hdr *dchdr;
+	struct mdss_dsi_ctrl_pdata *ctrl;
+	struct mipi_panel_info *mipi;
+
+	ctrl = container_of(gpdata, struct mdss_dsi_ctrl_pdata, panel_data);
+
+	mipi  = &gpdata->panel_info.mipi;
+
+	if (debug.command_len < 9) {
+		kfree(debug.command_buf);
+		debug.command_buf = kzalloc(9, GFP_KERNEL);
+		debug.command_len = 9;
+	}
+
+	debug.command_buf[0] = data_type;
+	debug.command_buf[1] = 0x01;
+	debug.command_buf[2] = 0x00;
+	debug.command_buf[3] = 0x01;
+	debug.command_buf[4] = 0x05;
+	debug.command_buf[5] = 0x00;
+	debug.command_buf[6] = 2;
+	debug.command_buf[7] = command;
+	debug.command_buf[8] = 0x00;
+
+	debug.cmds.cmd_cnt = 1;
+	debug.cmds.buf = debug.command_buf;
+	debug.cmds.blen = 9;
+
+	if (debug.cmds.cmds == NULL) {
+		debug.cmds.cmds = kzalloc(sizeof(struct dsi_cmd_desc),
+				GFP_KERNEL);
+	}
+
+	dchdr = (struct dsi_ctrl_hdr *)debug.command_buf;
+	debug.cmds.cmds[0].dchdr = *dchdr;
+	debug.cmds.cmds[0].payload = &debug.command_buf[7];
+	debug.cmds.link_state = DSI_HS_MODE;
+
+	mdss_dsi_op_mode_config(DSI_CMD_MODE, gpdata);
+	mdss_dsi_panel_cmds_send(ctrl, &debug.cmds, CMD_READ);
+	mdss_dsi_op_mode_config(mipi->mode, gpdata);
+
+	for (ii = 0; ii < debug.length; ii++)
+		printk("data %d: 0x%02x\n", ii, ctrl->rx_buf.data[ii]);
+
+	debug.index = 0;
+	debug.length = 0;
+
+	return;
+}
+
+static void do_write(unsigned char command, unsigned char data_type)
+{
+	unsigned char length;
+	struct dsi_ctrl_hdr *dchdr;
+	struct mdss_dsi_ctrl_pdata *ctrl;
+
+	ctrl = container_of(gpdata, struct mdss_dsi_ctrl_pdata, panel_data);
+
+	if (debug.length == 0) {
+		debug.buffer[debug.index] = 0x00;
+		debug.index++;
+		debug.length++;
+	}
+
+	length = sizeof(struct dsi_ctrl_hdr) + 1 + debug.length;
+	if (length > debug.command_len) {
+		kfree(debug.command_buf);
+		debug.command_buf = kzalloc(length, GFP_KERNEL);
+		debug.command_len = length;
+	}
+
+	debug.command_buf[0] = data_type;
+	debug.command_buf[1] = 0x01;
+	debug.command_buf[2] = 0x00;
+	debug.command_buf[3] = 0x00;
+	debug.command_buf[4] = 0x00;
+	debug.command_buf[5] = 0x00;
+	debug.command_buf[6] = debug.length + 1;
+	debug.command_buf[7] = command;
+	memcpy(&debug.command_buf[8], debug.buffer, debug.length);
+
+	debug.cmds.cmd_cnt = 1;
+	debug.cmds.buf = debug.command_buf;
+	debug.cmds.blen = length;
+
+	if (debug.cmds.cmds == NULL) {
+		debug.cmds.cmds = kzalloc(sizeof(struct dsi_cmd_desc),
+				GFP_KERNEL);
+	}
+
+	dchdr = (struct dsi_ctrl_hdr *)debug.command_buf;
+	debug.cmds.cmds[0].dchdr = *dchdr;
+	debug.cmds.cmds[0].payload = &debug.command_buf[7];
+	debug.cmds.link_state = DSI_HS_MODE;
+
+	mdss_dsi_panel_cmds_send(ctrl, &debug.cmds, CMD_WRITE);
+
+	debug.index = 0;
+	debug.length = 0;
+
+	return;
+}
+
+static ssize_t sysfs_store_length(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval;
+	unsigned long input;
+
+	retval = strict_strtoul(buf, 16, &input);
+
+	if (input > BUFFER_LENGTH)
+		input = BUFFER_LENGTH;
+
+	debug.length = input;
+	debug.index = 0;
+
+	return count;
+}
+
+static ssize_t sysfs_store_buffer(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval;
+	unsigned long input;
+
+	retval = strict_strtoul(buf, 16, &input);
+
+	if (debug.index == BUFFER_LENGTH) {
+		pr_err("%s: Write buffer already full\n", __func__);
+		return -EINVAL;
+	}
+
+	debug.buffer[debug.index] = (unsigned char)input;
+
+	debug.index++;
+	debug.length++;
+
+	return count;
+}
+
+static ssize_t sysfs_store_read(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval;
+	unsigned long input;
+
+	retval = strict_strtoul(buf, 16, &input);
+
+	if (debug.length == 0)
+		debug.length = 1;
+
+	do_read((unsigned char)input, DSI_READ);
+
+	return count;
+}
+
+static ssize_t sysfs_store_gread(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval;
+	unsigned long input;
+	unsigned char data_type;
+
+	retval = strict_strtoul(buf, 16, &input);
+
+	if (debug.length == 0)
+		debug.length = 1;
+
+	if (debug.length == 1)
+		data_type = DSI_GENERIC_READ_1;
+	else if (debug.length == 2)
+		data_type = DSI_GENERIC_READ_2;
+	else
+		data_type = DSI_READ;
+
+	do_read((unsigned char)input, data_type);
+
+	return count;
+}
+
+static ssize_t sysfs_store_write(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval;
+	unsigned long input;
+	unsigned char data_type;
+
+	retval = strict_strtoul(buf, 16, &input);
+
+	if (debug.length == 0)
+		data_type = DSI_SHORT_WRITE_0;
+	else if (debug.length == 1)
+		data_type = DSI_SHORT_WRITE_1;
+	else
+		data_type = DSI_LONG_WRITE;
+
+	do_write((unsigned char)input, data_type);
+
+	return count;
+}
+
+static ssize_t sysfs_store_gwrite(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	int retval;
+	unsigned long input;
+	unsigned char data_type;
+
+	retval = strict_strtoul(buf, 16, &input);
+
+	if (debug.length == 0)
+		data_type = DSI_GENERIC_SHORT_WRITE_0;
+	else if (debug.length == 1)
+		data_type = DSI_GENERIC_SHORT_WRITE_1;
+	else
+		data_type = DSI_GENERIC_LONG_WRITE;
+
+	do_write((unsigned char)input, data_type);
+
+	return count;
+}
+
+static DEVICE_ATTR(length, 0644,
+		NULL, sysfs_store_length);
+static DEVICE_ATTR(buffer, 0644,
+		NULL, sysfs_store_buffer);
+static DEVICE_ATTR(read, 0644,
+		NULL, sysfs_store_read);
+static DEVICE_ATTR(gread, 0644,
+		NULL, sysfs_store_gread);
+static DEVICE_ATTR(write, 0644,
+		NULL, sysfs_store_write);
+static DEVICE_ATTR(gwrite, 0644,
+		NULL, sysfs_store_gwrite);
+
+static struct attribute *sysfs_attrs[] = {
+	&dev_attr_length.attr,
+	&dev_attr_buffer.attr,
+	&dev_attr_read.attr,
+	&dev_attr_gread.attr,
+	&dev_attr_write.attr,
+	&dev_attr_gwrite.attr,
+	NULL,
+};
+
+static struct attribute_group sysfs_attr_group = {
+	.attrs = sysfs_attrs,
+};
+#endif
+//add end
 
 static int mdss_dsi_pinctrl_set_state(struct mdss_dsi_ctrl_pdata *ctrl_pdata,
 					bool active);
@@ -102,7 +429,11 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 		/* Add delay recommended by panel specs */
 		udelay(2000);
 	}
-
+    //zhangjian add for 8939
+    #ifdef CONFIG_ZTE_LCD_P8939
+    mdss_dsi_panel_power_enable(pdata, 0);
+    #endif
+    //add end
 	for (i = DSI_MAX_PM - 1; i >= 0; i--) {
 		/*
 		 * Core power module will be disabled when the
@@ -169,6 +500,11 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 	 * bootloader. This needs to be done irresepective of whether
 	 * the lp11_init flag is set or not.
 	 */
+	 //zhangjian add for 8939
+        #ifdef CONFIG_ZTE_LCD_P8939
+        mdss_dsi_panel_power_enable(pdata, 1);
+		#endif
+        //add end
 	if (pdata->panel_info.cont_splash_enabled ||
 		!pdata->panel_info.mipi.lp11_init) {
 		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
@@ -690,6 +1026,11 @@ static int mdss_dsi_pinctrl_init(struct platform_device *pdev)
 static int mdss_dsi_unblank(struct mdss_panel_data *pdata)
 {
 	int ret = 0;
+   //zhangjian add for ce
+   #ifdef CONFIG_LCD_DISPLAY_ENHANCE
+   int rt = 0;
+   #endif
+   //add end
 	struct mipi_panel_info *mipi;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 
@@ -722,6 +1063,13 @@ static int mdss_dsi_unblank(struct mdss_panel_data *pdata)
 							__func__);
 				goto error;
 			}
+            ///zhangjian add for ce
+           #ifdef CONFIG_LCD_DISPLAY_ENHANCE
+           rt=ctrl_pdata->ce(pdata, ce_pram);  
+           if (rt)
+           printk("dsi_panel_handler panel set ce failed %d\n", rt);
+           #endif
+           //zhangjian add end
 		}
 		ctrl_pdata->ctrl_state |= CTRL_STATE_PANEL_INIT;
 	}
@@ -1288,6 +1636,9 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 		rc = mdss_dsi_register_recovery_handler(ctrl_pdata,
 			(struct mdss_intf_recovery *)arg);
 		break;
+	case MDSS_EVENT_INTF_RESTORE:
+		mdss_dsi_ctrl_phy_restore(ctrl_pdata);
+		break;
 	default:
 		pr_debug("%s: unhandled event=%d\n", __func__, event);
 		break;
@@ -1812,6 +2163,77 @@ int dsi_panel_device_register(struct device_node *pan_node,
 	if (!gpio_is_valid(ctrl_pdata->bklt_en_gpio))
 		pr_info("%s: bklt_en gpio not specified\n", __func__);
 
+    //zhangjian add for 8939 lcd
+    #ifdef CONFIG_ZTE_LCD_P8939
+    /*begin ,yangchaofeng add for F30-LCD power */
+    #ifdef CONFIG_ZTE_NOT_INCELL_LCD
+    ctrl_pdata->disp_vdddc_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,"qcom,platform-vdddc-en-gpio", 0);
+
+        if (!gpio_is_valid(ctrl_pdata->disp_vdddc_en_gpio)) {
+                pr_err("%s:%d, qcom,platform-vdddc-en-gpio not specified\n", __func__, __LINE__);
+        }
+        else{
+                rc = gpio_request(ctrl_pdata->disp_vdddc_en_gpio,"disp_vdddc_en_gpio");
+                if (rc) {
+                        pr_err("request disp_vdddc_en_gpio failed, rc=%d\n",rc);
+                }else{
+                    gpio_direction_output(ctrl_pdata->disp_vdddc_en_gpio, 1);//config gpio to output
+                }
+        }
+
+        ctrl_pdata->disp_vddio_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,"qcom,platform-vddio-en-gpio", 0);
+
+        if (!gpio_is_valid(ctrl_pdata->disp_vddio_en_gpio)) {
+                pr_err("%s:%d, qcom,platform-vddio-en-gpio not specified\n",__func__, __LINE__);
+        }else{
+                rc = gpio_request(ctrl_pdata->disp_vddio_en_gpio,"disp_vddio_en_gpio");
+                if (rc) {
+                        pr_err("request disp_vddio_en_gpio failed, rc=%d\n",rc);
+                }else{
+                     gpio_direction_output(ctrl_pdata->disp_vddio_en_gpio, 1);//config gpio to output
+                }
+	}
+
+        ctrl_pdata->disp_debug_mode_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,"qcom,platform-debug-mode-en-gpio", 0);
+
+        if (!gpio_is_valid(ctrl_pdata->disp_debug_mode_en_gpio)) {
+                pr_err("%s:%d, qcom,platform-debug-mode-en-gpio not specified\n",__func__, __LINE__);
+        }else{
+                rc = gpio_request(ctrl_pdata->disp_debug_mode_en_gpio,"disp_debug_mode_en_gpio");
+                if (rc) {
+                        pr_err("request disp_debug_mode_en_gpio failed, rc=%d\n",rc);
+                }else{
+                    gpio_direction_output(ctrl_pdata->disp_debug_mode_en_gpio, 1);//config gpio to output
+                }
+	}
+    #else
+    /*end ,yangchaofeng add for F30-LCD power */
+    ctrl_pdata->disp_vdddc_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+		"qcom,platform-vdddc-en-gpio", 0);
+
+	if (!gpio_is_valid(ctrl_pdata->disp_vdddc_en_gpio)) {
+		pr_err("%s:%d, qcom,platform-vdddc-en-gpio not specified\n",
+						__func__, __LINE__);
+	} 
+
+	ctrl_pdata->disp_vddio_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+		"qcom,platform-vddio-en-gpio", 0);
+	
+	if (!gpio_is_valid(ctrl_pdata->disp_vddio_en_gpio)) {
+		pr_err("%s:%d, qcom,platform-vddio-en-gpio not specified\n",
+						__func__, __LINE__);
+	}
+
+    ctrl_pdata->disp_debug_mode_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
+		"qcom,platform-debug-mode-en-gpio", 0);
+	
+	if (!gpio_is_valid(ctrl_pdata->disp_debug_mode_en_gpio)) {
+		pr_err("%s:%d, qcom,platform-debug-mode-en-gpio not specified\n",
+						__func__, __LINE__);
+	}    
+    #endif //add yangchaofeng for F30-LCD power
+    #endif
+    //zhangjian add end
 	ctrl_pdata->rst_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
 			 "qcom,platform-reset-gpio", 0);
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio))
@@ -1950,6 +2372,15 @@ int dsi_panel_device_register(struct device_node *pan_node,
 	}
 
 	pr_debug("%s: Panel data initialized\n", __func__);
+    //zhangjian add for 8939
+    #ifdef CONFIG_ZTE_LCD_P8939
+	gpdata = &(ctrl_pdata->panel_data);
+
+	debug.sysfs_dir = kobject_create_and_add(SYSFS_FOLDER_NAME, NULL);
+
+	rc = sysfs_create_group(debug.sysfs_dir, &sysfs_attr_group);
+	#endif
+    //add end
 	return 0;
 }
 

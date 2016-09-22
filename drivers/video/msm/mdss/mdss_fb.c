@@ -67,7 +67,18 @@
 #define MAX_FBI_LIST 32
 static struct fb_info *fbi_list[MAX_FBI_LIST];
 static int fbi_list_index;
-
+//zhangjian add for ce enhance
+#ifdef CONFIG_LCD_DISPLAY_ENHANCE
+unsigned int ce_pram=0; 
+extern int  panel_set_CEenhance(int ce_mode);
+#endif
+//zhangjian add end 
+/* zhangjian add for adb read LCD info */
+#include "mdss_panel.h"
+static struct proc_dir_entry * d_entry;
+static char  module_name[50]={"0"};
+extern char LcdPanelName[50];
+/* add  end */
 static u32 mdss_fb_pseudo_palette[16] = {
 	0x00000000, 0xffffffff, 0xffffffff, 0xffffffff,
 	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -104,6 +115,43 @@ static int mdss_fb_pan_idle(struct msm_fb_data_type *mfd);
 static int mdss_fb_send_panel_event(struct msm_fb_data_type *mfd,
 					int event, void *arg);
 static void mdss_fb_set_mdp_sync_pt_threshold(struct msm_fb_data_type *mfd);
+/* zhangjian add for adb read LCD info */
+
+static int mdss_dsi_panel_lcd_proc_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%s\n", module_name);
+	return 0;
+}
+
+static int mdss_dsi_panel_lcd_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, mdss_dsi_panel_lcd_proc_show, NULL);
+}
+
+static const struct file_operations mdss_dsi_panel_lcd_proc_fops = {
+	.owner		= THIS_MODULE,
+	.open		= mdss_dsi_panel_lcd_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+void  mdss_dsi_panel_lcd_proc(void)
+{		  	
+	d_entry = proc_create_data("lcd_id", 0, NULL, &mdss_dsi_panel_lcd_proc_fops, NULL);
+	if (!strncmp(LcdPanelName, TD4291_JDI_720P_VIDEO_PANEL, strnlen(TD4291_JDI_720P_VIDEO_PANEL, PANEL_NAME_MAX_LEN)))
+        strcpy(module_name, "IC:TD4291+SYNAPTICS; Glass:JDI; Resolution:720*1280");
+	else if (!strncmp(LcdPanelName, ILI9806E_HOLITECH_WVGA_PANEL, strnlen(ILI9806E_HOLITECH_WVGA_PANEL, PANEL_NAME_MAX_LEN)))
+        strcpy(module_name, "IC:ILI9806E+HOLITECH; Glass:TFT; Resolution:480*854");
+        else if (!strncmp(LcdPanelName, JDF_OTM1284A_720P_VIDEO_PANEL, strnlen(JDF_OTM1284A_720P_VIDEO_PANEL, PANEL_NAME_MAX_LEN)))
+        strcpy(module_name, "IC:OTM1284A; Glass:JDF; Resolution:720*1280");
+        else if (!strncmp(LcdPanelName, LEAD_OTM1284A_720P_VIDEO_PANEL, strnlen(LEAD_OTM1284A_720P_VIDEO_PANEL, PANEL_NAME_MAX_LEN)))
+        strcpy(module_name, "IC:OTM1284A; Glass:LEAD; Resolution:720*1280");
+	else
+		strcpy(module_name, "0");
+	
+}
+/* zhangjian add end */
 void mdss_fb_no_update_notify_timer_cb(unsigned long data)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)data;
@@ -771,7 +819,14 @@ static int mdss_fb_probe(struct platform_device *pdev)
 	fbi_list[fbi_list_index++] = fbi;
 
 	platform_set_drvdata(pdev, mfd);
-
+	/* zhangjian add adb read lcd info*/
+	/* yangchaofeng modify for  adb read lcd info*/
+        if(lcd_flg)
+        {
+            mdss_dsi_panel_lcd_proc();
+	        lcd_flg=false;
+        }
+    /* add end*/
 	rc = mdss_fb_register(mfd);
 	if (rc)
 		return rc;
@@ -1234,7 +1289,7 @@ static int mdss_fb_unblank_sub(struct msm_fb_data_type *mfd)
 			schedule_delayed_work(&mfd->idle_notify_work,
 				msecs_to_jiffies(mfd->idle_time));
 	}
-
+    #if 0 //zhangjian delete flick white when sleep out
 	/* Reset the backlight only if the panel was off */
 	if (mdss_panel_is_power_off(cur_power_state)) {
 		mutex_lock(&mfd->bl_lock);
@@ -1253,7 +1308,8 @@ static int mdss_fb_unblank_sub(struct msm_fb_data_type *mfd)
 		}
 		mutex_unlock(&mfd->bl_lock);
 	}
-
+   #endif
+   //delete end
 error:
 	return ret;
 }
@@ -3313,6 +3369,20 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 
 		ret = mdss_fb_lpm_enable(mfd, dsi_mode);
 		break;
+    /*zhangjian add for CE enhance fun */  
+    #ifdef CONFIG_LCD_DISPLAY_ENHANCE
+	case MSMFB_DISPLAY_ENHANCE:	
+		printk("zhangjian:enter%s,cmd=%x\n",__func__,cmd);
+        ret= copy_from_user(&ce_pram, argp,sizeof(ce_pram));
+        if (ret) {
+        printk("%s:zhangjian ce_pram copy_from_user failed", __func__);
+        return ret;
+        }
+        pr_err("%s: CEenhancet ce_pram  is %d\n", __func__,ce_pram );
+        panel_set_CEenhance(ce_pram);
+        break;
+        #endif
+      /*zhangjian add end*/		
 
 	default:
 		if (mfd->mdp.ioctl_handler)
