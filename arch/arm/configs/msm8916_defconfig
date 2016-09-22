@@ -564,3 +564,10 @@ CONFIG_SECCOMP=y
 CONFIG_SECCOMP_FILTER=y
 CONFIG_MSM_PERFORMANCE=y
 CONFIG_MSM_CORE_CTL_HELPER=y
+#zte weiguohua add it for zte headset gpio detect requirement,begin20141030
+CONFIG_ZTE_HEADSET_GPIO=y
+#zte weiguohua add it for zte headset gpio detect requirement,end 20141030
+#zte weiguohua add it for hifi chip requirement,begin 20141030
+CONFIG_ZTE_AKM_HIFI=y
+CONFIG_ZTE_OPEN_QCOM_I2S_QUARD=y
+#zte weiguohua add it for hifi chip requirement,end 20141030

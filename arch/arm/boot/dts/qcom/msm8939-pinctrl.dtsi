@@ -242,6 +242,26 @@
 				bias-disable;	      /* No PULL */
 			};
 		};
+		/*zte weiguohua add for i2c_3 controller begin*/
+		pmx_i2c_3 {
+			/* CLK, DATA */
+			qcom,pins = <&gp 11>, <&gp 10>;
+			qcom,num-grp-pins = <2>;
+			qcom,pin-func = <2>;
+			label = "pmx_i2c_3";
+
+			i2c_3_active: i2c_3_active {
+				drive-strength = <2>;	/* 2 MA */
+				bias-disable = <0>;	/* No PULL */
+			};
+
+			i2c_3_sleep: i2c_3_sleep {
+				drive-strength = <2>;	/* 2 MA */
+				bias-disable = <0>;	/* No PULL */
+			};
+
+		};	
+		/*zte weiguohua add for i2c_3 controller  end*/
 
 		pmx_i2c_4 {
 			qcom,pins = <&gp 14>, <&gp 15>; /* SDA, SCL */
@@ -614,10 +634,16 @@
 			};
 		};
 
+/*zte weiguohua modify it for open qcom  quat i2c interface,begin  20141031*/
 		ext-cdc-tlmm-lines {
-			qcom,pins = <&gp 116>, <&gp 112>, <&gp 117>,
-					<&gp 118>, <&gp 119>;
-			qcom,num-grp-pins = <5>;
+			//qcom,pins = <&gp 116>, <&gp 112>, <&gp 117>,
+			//			<&gp 118>, <&gp 119>;
+			//qcom,num-grp-pins = <5>;
+/*zte weiguohua modify it for open qcom  quat i2c interface,begin  20141031*/
+			qcom,pins =  <&gp 117>,
+						<&gp 118>, <&gp 119>;//weiguohua hifi
+            qcom,num-grp-pins = <3>;
+/*zte weiguohua modify it for open qcom  quat i2c interface,end  20141031*/
 			qcom,pin-func = <1>;
 			label = "ext-cdc-tlmm-lines";
 			ext_cdc_tlmm_lines_act: tlmm_lines_on {
@@ -628,6 +654,72 @@
 				bias-disable;
 			};
 		};
+
+		ext-codec-lines {
+			qcom,pins = <&gp 67>;
+			qcom,num-grp-pins = <1>;
+			qcom,pin-func = <0>;
+			label = "ext-codec-lines";
+			ext_codec_lines_act: lines_on {
+				drive-strength = <8>;
+				bias-disable;
+				output-high;
+			};
+			ext_codec_lines_sus: lines_off {
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+
+		cdc-ext-pa-lines {
+			qcom,pins = <&gp 113>, <&gp 114>,
+					<&gp 115>, <&gp 116>;
+			qcom,num-grp-pins = <4>;
+			qcom,pin-func = <1>;
+			label = "cdc-ext-pa-lines";
+			cdc_ext_pa_act: ext_pa_on {
+				drive-strength = <8>;
+				bias-pull-none;
+			};
+			cdc_ext_pa_sus: ext_pa_off {
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+
+		cdc-ext-pa-ws-line {
+			qcom,pins = <&gp 116>;
+			qcom,num-grp-pins = <1>;
+			qcom,pin-func = <2>;
+			label = "cdc-ext-pa-ws-line";
+			cdc_ext_pa_ws_act: ext_pa_on {
+				drive-strength = <8>;
+				bias-pull-none;
+			};
+			cdc_ext_pa_ws_sus: ext_pa_off {
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+/*zte weiguohua modify it for open qcom  quat i2c interface,end  20141031*/
+
+/*zte weiguohua add  it for headset gpio detect,start 20141031*/
+
+		headset-gpio-det{
+			qcom,pins = <&gp 31>;
+			qcom,num-grp-pins = <1>;
+			qcom,pin-func = <0>;
+			label = "headset_gpio_det";
+			headset_gpio_det_act: init {
+				drive-strength = <8>;
+				bias-disable;
+			};
+			headset_gpio_det_sus: close {
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+/*zte weiguohua add  it for headset gpio detect,end 20141031*/
 
 		cdc_slim_lines {
 			qcom,pins = <&gp 63>;

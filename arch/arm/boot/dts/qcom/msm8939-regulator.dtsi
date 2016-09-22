@@ -54,7 +54,7 @@
 		regulator-name = "spk_vreg";
 		startup-delay-us = <0>;
 		enable-active-high;
-		gpio = <&msm_gpio 121 0>;
+		//gpio = <&msm_gpio 121 0>;//zte weiguohua delete it for hifi chip reset gpio,20141201
 	};
 
 	mem_acc_vreg_corner: regulator@1942130 {

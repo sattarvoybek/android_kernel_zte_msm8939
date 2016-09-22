@@ -630,6 +630,42 @@ static int ext_mi2s_clk_ctl(struct snd_pcm_substream *substream, bool enable)
 	return ret;
 }
 
+
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+static int quat_mi2s_sclk_ctl(struct snd_pcm_substream *substream, bool enable)
+{
+ int ret = 0;
+
+if (enable) {
+      if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+      if (mi2s_rx_bit_format == SNDRV_PCM_FORMAT_S24_LE)
+       mi2s_rx_clk.clk_val1 =  Q6AFE_LPASS_IBIT_CLK_3_P072_MHZ;
+       else
+       mi2s_rx_clk.clk_val1 =   Q6AFE_LPASS_IBIT_CLK_1_P536_MHZ;
+	   
+ 	ret = afe_set_lpass_clock(AFE_PORT_ID_QUATERNARY_MI2S_RX,
+ 	&mi2s_rx_clk);
+ 	} else
+ 	pr_err("%s:Not valid substream.\n", __func__);
+
+	if (ret < 0)
+ 	pr_err("%s:afe_set_lpass_clock failed\n", __func__);
+
+} else {
+	 if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+ 		mi2s_rx_clk.clk_val1 = Q6AFE_LPASS_IBIT_CLK_DISABLE;
+ 		ret = afe_set_lpass_clock(AFE_PORT_ID_QUATERNARY_MI2S_RX,
+ 		&mi2s_rx_clk);
+ 	} else
+ pr_err("%s:Not valid substream.\n", __func__);
+
+	if (ret < 0)
+ 	pr_err("%s:afe_set_lpass_clock failed\n", __func__);
+ }
+ return ret;
+}
+#endif
+
 static int msm8x16_enable_codec_ext_clk(struct snd_soc_codec *codec,
 					int enable, bool dapm)
 {
@@ -870,6 +906,28 @@ static int conf_int_codec_mux_sec(struct msm8916_asoc_mach_data *pdata)
 	return ret;
 }
 
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+static int conf_int_codec_mux_quat(struct msm8916_asoc_mach_data *pdata)
+{
+ 	int ret = 0;
+ 	int val = 0;
+ 	void __iomem *vaddr = NULL;
+
+	vaddr = pdata->vaddr_gpio_mux_spkr_ctl;
+	 /* enable sec MI2S interface to TLMM GPIO */
+	 val = ioread32(vaddr);
+	 val = val | 0x00000002;
+	 iowrite32(val, vaddr);
+
+	vaddr = pdata->vaddr_gpio_mux_mic_ctl;
+	 /* enable QUAT MI2S interface to TLMM GPIO */
+	 val = ioread32(vaddr);
+	 val = val | 0x0002000E;
+	 pr_debug("%s: QUAT mux configuration = %x\n", __func__, val);
+	 iowrite32(val, vaddr);
+	 return ret;
+}
+#endif
 static int msm_sec_mi2s_snd_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
@@ -931,6 +989,100 @@ err:
 	return ret;
 }
 
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+static int msm_quat_mi2s_snd_startup(struct snd_pcm_substream *substream)
+{
+	 struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	 struct snd_soc_card *card = rtd->card;
+	 struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
+	 struct snd_soc_codec *codec = rtd->codec;
+	 struct msm8916_asoc_mach_data *pdata =
+	 snd_soc_card_get_drvdata(card);
+	 int ret = 0;
+	 pr_debug("%s(): substream = %s stream = %d\n", __func__,
+	 substream->name, substream->stream);
+
+	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
+	 pr_info("%s: Quaternary Mi2s does not support capture\n",
+	 __func__);
+	 return 0;
+	 }
+	 if (!pdata->codec_type &&
+	 ((pdata->ext_pa & QUAT_MI2S_ID) == QUAT_MI2S_ID)) {
+	 ret = conf_int_codec_mux_quat(pdata);
+	 if (ret < 0) {
+	 pr_err("%s: failed to conf internal codec mux\n",
+	 __func__);
+	 return ret;
+	 }
+	 ret = msm8x16_enable_codec_ext_clk(codec, 1, true);
+	 if (ret < 0) {
+	 pr_err("failed to enable mclk\n");
+	 return ret;
+	 }
+	 ret = quat_mi2s_sclk_ctl(substream, true);
+	 if (ret < 0) {
+	 pr_err("failed to enable sclk\n");
+	 goto err;
+	 }
+	 ret = pinctrl_select_state(pinctrl_info.pinctrl,
+	 pinctrl_info.cdc_lines_act);
+	 if (ret < 0) {
+	 pr_err("failed to enable codec gpios\n");
+	 goto err1;
+	 }
+	 } else {
+	 pr_err("%s: error codec type\n", __func__);
+	 }
+	 if (atomic_inc_return(&quat_mi2s_rsc_ref_8x16) == 1) {
+	 	pr_debug("%s: set fmt \n", __func__);
+	 ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBS_CFS);
+	 if (ret < 0)
+	 pr_debug("%s: set fmt cpu dai failed\n", __func__);
+	 }
+	 return ret;
+err1:
+//weiguohua modify it temp
+ //ret = sec_mi2s_sclk_ctl(substream, false);
+ ret = quat_mi2s_sclk_ctl(substream, false);
+//weiguohua modify it temp
+ if (ret < 0)
+ pr_err("failed to disable sclk\n");
+err:
+ ret = msm8x16_enable_codec_ext_clk(codec, 0, true);
+ if (ret < 0)
+ pr_err("failed to disable mclk\n");
+
+return ret;
+}
+
+static void msm_quat_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
+{
+	 int ret;
+	 struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	 struct snd_soc_card *card = rtd->card;
+	 struct msm8916_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
+
+	pr_debug("%s(): substream = %s stream = %d\n", __func__,
+	 substream->name, substream->stream);
+	 if ((!pdata->codec_type) &&
+	 ((pdata->ext_pa & QUAT_MI2S_ID) == QUAT_MI2S_ID)) {
+	 ret = quat_mi2s_sclk_ctl(substream, false);
+	 if (ret < 0)
+	 pr_err("%s:clock disable failed\n", __func__);
+	 if (atomic_read(&pdata->mclk_rsc_ref) > 0) {
+	 atomic_dec(&pdata->mclk_rsc_ref);
+	 pr_debug("%s: decrementing mclk_res_ref %d\n",
+	 __func__,
+	 atomic_read(&pdata->mclk_rsc_ref));
+	 }
+	 if (atomic_read(&quat_mi2s_rsc_ref_8x16) > 0)
+	 atomic_dec(&quat_mi2s_rsc_ref_8x16);
+      }
+}
+#endif
+
+
 static void msm_sec_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 {
 	int ret;
@@ -967,7 +1119,11 @@ static int conf_int_codec_mux(struct msm8916_asoc_mach_data *pdata)
 	 */
 	vaddr = pdata->vaddr_gpio_mux_spkr_ctl;
 	val = ioread32(vaddr);
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+	val = val | 0x00010002;
+#else
 	val = val | 0x00030300;
+#endif
 	iowrite32(val, vaddr);
 
 	vaddr = pdata->vaddr_gpio_mux_mic_ctl;
@@ -1184,6 +1340,15 @@ static struct snd_soc_ops msm8x16_mi2s_be_ops = {
 	.hw_params = msm_mi2s_snd_hw_params,
 	.shutdown = msm_mi2s_snd_shutdown,
 };
+
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+static struct snd_soc_ops msm8x16_quat_mi2s_be_ops = {
+ .startup = msm_quat_mi2s_snd_startup,
+ .hw_params = msm_mi2s_snd_hw_params,
+ .shutdown = msm_quat_mi2s_snd_shutdown,
+};
+#endif
+
 
 static struct snd_soc_dai_link msm8x16_9306_dai[] = {
 	/* Backend DAI Links */
@@ -1680,6 +1845,38 @@ static struct snd_soc_dai_link msm8x16_dai[] = {
 		.ops = &msm8x16_mi2s_be_ops,
 		.ignore_suspend = 1,
 	},
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+	{
+	 .name = LPASS_BE_QUAT_MI2S_RX,
+	 .stream_name = "Quaternary MI2S Playback",
+	 .cpu_dai_name = "msm-dai-q6-mi2s.3",
+	 .platform_name = "msm-pcm-routing",
+	 //weiguohua modify for hifi akm4375
+	.codec_dai_name = "ak4375-AIF1",// .codec_dai_name = "snd-soc-dummy-dai",
+	 .codec_name = "ak4375",//.codec_name = "snd-soc-dummy",
+	 //wieguohua ,modify for hifi akm4375
+	 .no_pcm = 1,
+	 .be_id = MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
+	 .be_hw_params_fixup = msm_be_hw_params_fixup,
+	 .ops = &msm8x16_quat_mi2s_be_ops,
+	//.dai_fmt = SND_SOC_DAIFMT_I2S,//weiguohua add it begin	 
+	 .ignore_pmdown_time = 1, /* dai link has playback support */
+	 .ignore_suspend = 1,
+	 },
+	 {
+	 .name = LPASS_BE_QUAT_MI2S_TX,
+	  .stream_name = "Quaternary MI2S Capture",
+	 .cpu_dai_name = "msm-dai-q6-mi2s.3",
+	 .platform_name = "msm-pcm-routing",
+	 .codec_dai_name = "snd-soc-dummy-dai",
+	 .codec_name = "snd-soc-dummy",
+	 .no_pcm = 1,
+	 .be_id = MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
+	 .be_hw_params_fixup = msm_be_hw_params_fixup,
+	 .ops = &msm8x16_quat_mi2s_be_ops,
+	 .ignore_suspend = 1,
+	 },
+#endif
 	{
 		.name = LPASS_BE_INT_BT_SCO_RX,
 		.stream_name = "Internal BT-SCO Playback",
@@ -1948,6 +2145,8 @@ static int msm8x16_setup_hs_jack(struct platform_device *pdev,
 								 __func__);
 			return -EINVAL;
 		}
+		pr_err("%s: success enter into  europe pin request\n",
+								 __func__);
 	}
 	return 0;
 }
@@ -1955,7 +2154,11 @@ static int msm8x16_setup_hs_jack(struct platform_device *pdev,
 int get_cdc_gpio_lines(struct pinctrl *pinctrl, int ext_pa)
 {
 	pr_debug("%s\n", __func__);
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+	switch (ext_pa & (SEC_MI2S_ID|QUAT_MI2S_ID)) {
+#else
 	switch (ext_pa & SEC_MI2S_ID) {
+#endif
 	case SEC_MI2S_ID:
 		pinctrl_info.cdc_lines_sus = pinctrl_lookup_state(pinctrl,
 			"cdc_lines_sec_ext_sus");
@@ -1972,6 +2175,24 @@ int get_cdc_gpio_lines(struct pinctrl *pinctrl, int ext_pa)
 			return -EINVAL;
 		}
 		break;
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+	 case QUAT_MI2S_ID:
+	 pinctrl_info.cdc_lines_sus = pinctrl_lookup_state(pinctrl,
+	 "cdc_lines_quat_ext_sus");
+	 if (IS_ERR(pinctrl_info.cdc_lines_sus)) {
+	 pr_err("%s: Unable to get pinctrl disable state handle\n",
+	 __func__);
+	 return -EINVAL;
+	 }
+	 pinctrl_info.cdc_lines_act = pinctrl_lookup_state(pinctrl,
+	 "cdc_lines_quat_ext_act");
+	 if (IS_ERR(pinctrl_info.cdc_lines_act)) {
+	 pr_err("%s: Unable to get pinctrl disable state handle\n",
+	 __func__);
+	 return -EINVAL;
+	 }
+	 break;
+#endif
 	default:
 		pinctrl_info.cdc_lines_sus = pinctrl_lookup_state(pinctrl,
 			"cdc_lines_sus");
@@ -2311,7 +2532,9 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 	mutex_init(&pdata->cdc_mclk_mutex);
 	atomic_set(&pdata->mclk_rsc_ref, 0);
 	atomic_set(&pdata->mclk_enabled, false);
-
+#ifdef CONFIG_ZTE_OPEN_QCOM_I2S_QUARD
+       atomic_set(&quat_mi2s_rsc_ref_8x16, 0);
+#endif
 	ret = snd_soc_of_parse_audio_routing(card,
 			"qcom,audio-routing");
 	if (ret)
@@ -2329,6 +2552,7 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 			ret);
 		goto err;
 	}
+dev_err(&pdev->dev, "zte add register card sound success \n");	
 	return 0;
 err:
 	devm_kfree(&pdev->dev, pdata);

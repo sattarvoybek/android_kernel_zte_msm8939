@@ -514,6 +514,13 @@ CONFIG_CRYPTO_TWOFISH=y
 CONFIG_CRYPTO_DEV_QCRYPTO=y
 CONFIG_CRYPTO_DEV_QCE=y
 CONFIG_CRYPTO_DEV_QCEDEV=y
+#zte weiguohua add it for zte headset gpio detect requirement,begin20141030
+CONFIG_ZTE_HEADSET_GPIO=y
+#zte weiguohua add it for zte headset gpio detect requirement,end 20141030
+#zte weiguohua add it for hifi chip requirement,begin 20141030
+CONFIG_ZTE_AKM_HIFI=y
+CONFIG_ZTE_OPEN_QCOM_I2S_QUARD=y
+#zte weiguohua add it for hifi chip requirement,end 20141030
 CONFIG_HAVE_ARCH_SECCOMP_FILTER=y
 CONFIG_SECCOMP=y
 CONFIG_SECCOMP_FILTER=y

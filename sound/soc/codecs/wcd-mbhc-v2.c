@@ -9,6 +9,8 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+// #define  DEBUG //WEIGUOHUA  ADD TEMP
+#define   OPEN_HEADSET_REPORT_LOG   
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -37,6 +39,13 @@
 #include "msm8916-wcd-irq.h"
 #include "msm8x16-wcd.h"
 #include "wcdcal-hwdep.h"
+#define  ZTE_HEADSET_STATE_PROC
+#ifdef ZTE_HEADSET_STATE_PROC
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#endif
+
+#define ZTE_MAKE_HEADSET_DETECT_STABLE
 
 #define WCD_MBHC_JACK_MASK (SND_JACK_HEADSET | SND_JACK_OC_HPHL | \
 			   SND_JACK_OC_HPHR | SND_JACK_LINEOUT | \
@@ -45,8 +54,18 @@
 				  SND_JACK_BTN_2 | SND_JACK_BTN_3 | \
 				  SND_JACK_BTN_4)
 #define OCP_ATTEMPT 1
+#if defined(CONFIG_ZTE_HEADSET_GPIO)
+#define HS_DETECT_PLUG_TIME_MS (2 * 1000)
+#else
 #define HS_DETECT_PLUG_TIME_MS (3 * 1000)
+#endif
+
+#ifdef ZTE_MAKE_HEADSET_DETECT_STABLE
+#define SPECIAL_HS_DETECT_TIME_MS (3* 100)
+#else
 #define SPECIAL_HS_DETECT_TIME_MS (2 * 1000)
+#endif
+
 #define MBHC_BUTTON_PRESS_THRESHOLD_MIN 250
 #define GND_MIC_SWAP_THRESHOLD 4
 #define WCD_FAKE_REMOVAL_MIN_PERIOD_MS 100
@@ -55,6 +74,16 @@
 #define FW_READ_TIMEOUT 4000000
 
 static int det_extn_cable_en;
+
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+struct headset_gpio_pinctrl_info {
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *headset_gpio_det_sus;
+	struct pinctrl_state *headset_gpio_det_act;
+};
+
+static struct headset_gpio_pinctrl_info pinctrl_info_headset_gpio;
+#endif
 module_param(det_extn_cable_en, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(det_extn_cable_en, "enable/disable extn cable detect");
@@ -120,6 +149,27 @@ static void wcd_mbhc_jack_report(struct wcd_mbhc *mbhc,
 {
 	snd_soc_jack_report_no_dapm(jack, status, mask);
 }
+#ifdef ZTE_HEADSET_STATE_PROC
+int headset_plug_state = 0;
+
+static int hs_state_show(struct seq_file *m, void *v)
+{
+	return	seq_printf(m, "headset_plug_state: %d\n",headset_plug_state);
+}
+
+static int hs_state_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, hs_state_show, NULL);
+}
+
+static const struct file_operations hs_state_operations = {
+	.open		= hs_state_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+#endif 
 
 static void __hphocp_off_report(struct wcd_mbhc *mbhc, u32 jack_status,
 				int irq)
@@ -204,8 +254,13 @@ static void wcd_program_btn_threshold(const struct wcd_mbhc *mbhc, bool micbias)
 
 		reg_val = (course << 5) | (fine << 2);
 		snd_soc_update_bits(codec, reg_addr, 0xFC, reg_val);
-		pr_debug("%s: course: %d fine: %d reg_addr: %x reg_val: %x\n",
+			#if 0
+		pr_err("%s: course: %d fine: %d reg_addr: %x reg_val: %x\n",
 				__func__, course, fine, reg_addr, reg_val);
+			#else
+		pr_debug("%s: course: %d fine: %d reg_addr: %x reg_val: %x\n",
+				__func__, course, fine, reg_addr, reg_val);	
+			#endif
 		reg_addr++;
 	}
 }
@@ -689,9 +744,32 @@ static void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 {
 	struct snd_soc_codec *codec = mbhc->codec;
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
-
+#ifdef    OPEN_HEADSET_REPORT_LOG   
+	pr_info("%s: enter insertion %d hph_status %x\n",
+		 __func__, insertion, mbhc->hph_status);
+#else
 	pr_debug("%s: enter insertion %d hph_status %x\n",
 		 __func__, insertion, mbhc->hph_status);
+#endif
+#ifdef ZTE_HEADSET_STATE_PROC
+    if(insertion)
+    {
+        switch(jack_type)
+        {
+        case SND_JACK_HEADPHONE:
+            headset_plug_state = 2;
+            break;
+        case SND_JACK_HEADSET:
+            headset_plug_state = 1;
+            break;
+        default:
+            headset_plug_state = 0;
+            break;
+        }        
+    }
+    else
+        headset_plug_state  = 0;
+#endif
 	if (!insertion) {
 		/* Report removal */
 		mbhc->hph_status &= ~jack_type;
@@ -795,10 +873,13 @@ static void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 					 enum wcd_mbhc_plug_type plug_type)
 {
 	struct snd_soc_codec *codec = mbhc->codec;
-
+#ifdef    OPEN_HEADSET_REPORT_LOG   
+	pr_info("%s: enter current_plug(%d) new_plug(%d)\n",
+		 __func__, mbhc->current_plug, plug_type);
+#else
 	pr_debug("%s: enter current_plug(%d) new_plug(%d)\n",
 		 __func__, mbhc->current_plug, plug_type);
-
+#endif
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
 
 	if (plug_type == MBHC_PLUG_TYPE_HEADPHONE) {
@@ -955,6 +1036,118 @@ static bool wcd_is_special_headset(struct wcd_mbhc *mbhc)
 	pr_debug("%s: leave\n", __func__);
 	return ret;
 }
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+void zte_headset_gpio_handler(struct work_struct *work)
+{
+      struct wcd_mbhc *mbhc = NULL;
+      struct snd_soc_codec *codec = NULL;	  
+	struct delayed_work *dwork;
+	bool detection_type;	
+	dwork = to_delayed_work(work);
+	mbhc = container_of(dwork, struct wcd_mbhc,
+				headset_gpio_detect_work);
+      codec = mbhc->codec;
+	pr_debug("%s: enter\n", __func__);	
+	//mutex_lock(&mbhc->headset_gpio_detect_mutex);
+	/* cancel pending button press */
+	if (wcd_cancel_btn_work(mbhc))
+		pr_debug("%s:zte add  button press is canceled\n", __func__);
+	
+	if (mbhc->current_plug == MBHC_PLUG_TYPE_NONE) {
+      pr_debug("%s:zte  currren headset not insert,need return\n", __func__);
+     return;
+     }
+		
+	detection_type =	gpio_get_value_cansleep(mbhc->gpio) ==
+			mbhc->gpio_level_insert ;
+
+	if(detection_type == 1)
+	{
+	pr_err("%s:zte  gpio headset not need reprot insert  ,need return\n", __func__);	
+	return;
+	}
+	pr_err("%s: mbhc->current_plug: %d detection_type: %d\n", __func__,
+			mbhc->current_plug, detection_type);
+	
+	WCD_MBHC_RSC_LOCK(mbhc);
+	mbhc->in_swch_irq_handler = true;	
+	
+  if ((mbhc->current_plug != MBHC_PLUG_TYPE_NONE) && !detection_type) {
+		/* Disable external voltage source to micbias if present */
+		if (mbhc->mbhc_cb && mbhc->mbhc_cb->enable_mb_source)
+			mbhc->mbhc_cb->enable_mb_source(codec, false);
+		/* Disable HW FSM */
+		snd_soc_update_bits(codec,
+				MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+				0xB0, 0x00);
+		snd_soc_update_bits(codec,
+				MSM8X16_WCD_A_ANALOG_MICB_1_EN,
+				0x04, 0x00);
+		wcd_configure_cap(mbhc, false);
+		mbhc->btn_press_intr = false;
+		if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADPHONE) {
+			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADPHONE);
+		} else if (mbhc->current_plug == MBHC_PLUG_TYPE_GND_MIC_SWAP) {
+			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_UNSUPPORTED);
+		} else if (mbhc->current_plug == MBHC_PLUG_TYPE_HEADSET) {
+			/* make sure to turn off Rbias */
+			snd_soc_update_bits(codec,
+					MSM8X16_WCD_A_ANALOG_MICB_1_INT_RBIAS,
+					0x18, 0x08);
+			snd_soc_update_bits(codec,
+					MSM8X16_WCD_A_ANALOG_MICB_2_EN,
+					0x20, 0x20);
+		
+			wcd9xxx_spmi_disable_irq(
+					mbhc->intr_ids->mbhc_hs_rem_intr);
+			wcd9xxx_spmi_disable_irq(
+					mbhc->intr_ids->mbhc_hs_ins_intr);
+			snd_soc_update_bits(codec,
+					MSM8X16_WCD_A_ANALOG_MBHC_DET_CTL_1,
+					0x01, 0x01);
+			snd_soc_update_bits(codec,
+					MSM8X16_WCD_A_ANALOG_MBHC_DET_CTL_2,
+					0x06, 0x00);
+			/* Enable current source */
+			snd_soc_update_bits(codec,
+				MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+				0x30, 0x30);
+			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADSET);
+		} else if (mbhc->current_plug == MBHC_PLUG_TYPE_HIGH_HPH) {
+			wcd9xxx_spmi_disable_irq(
+					mbhc->intr_ids->mbhc_hs_rem_intr);
+			wcd9xxx_spmi_disable_irq(
+					mbhc->intr_ids->mbhc_hs_ins_intr);
+			snd_soc_update_bits(codec,
+					MSM8X16_WCD_A_ANALOG_MBHC_DET_CTL_1,
+					0x01, 0x01);
+			snd_soc_update_bits(codec,
+					MSM8X16_WCD_A_ANALOG_MBHC_DET_CTL_2,
+					0x06, 0x00);
+			/* Enable current source */
+			snd_soc_update_bits(codec,
+				MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
+				0x30, 0x30);
+			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_LINEOUT);
+		}
+	} 
+      else{
+	pr_err("%s: zte goto  invalid  plug out state \n", __func__);
+	}
+	//mutex_unlock(&mbhc->headset_gpio_detect_mutex);
+	mbhc->in_swch_irq_handler = false;
+	WCD_MBHC_RSC_UNLOCK(mbhc);
+
+       if(mbhc->hph_switch > 0)
+       {
+	gpio_direction_output(mbhc->hph_switch, 0);//if the headset plug out,so switch to PMIC
+	dev_dbg(codec->dev, "%s: if the headset plug out,so switch to PMIC \n",
+			__func__);		
+	 }	
+	pr_debug("%s: leave\n", __func__);
+	
+}
+#endif
 
 static void wcd_correct_swch_plug(struct work_struct *work)
 {
@@ -994,7 +1187,9 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 		result2 = snd_soc_read(codec,
 				MSM8X16_WCD_A_ANALOG_MBHC_ZDET_ELECT_RESULT);
 		pr_debug("%s: result2 = %x\n", __func__, result2);
-
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+		pr_debug("%s:zte add result1 = %x\n", __func__, result1);
+#endif			
 		is_pa_on = snd_soc_read(codec,
 					MSM8X16_WCD_A_ANALOG_RX_HPH_CNP_EN) &
 					0x30;
@@ -1099,12 +1294,27 @@ static void wcd_correct_swch_plug(struct work_struct *work)
 
 	if (plug_type == MBHC_PLUG_TYPE_HIGH_HPH &&
 		(!det_extn_cable_en)) {
+		
+    #ifdef ZTE_MAKE_HEADSET_DETECT_STABLE
 		if (wcd_is_special_headset(mbhc)) {
 			pr_debug("%s: Special headset found %d\n",
 					__func__, plug_type);
 			plug_type = MBHC_PLUG_TYPE_HEADSET;
 			goto report;
 		}
+		else
+		{
+			plug_type = MBHC_PLUG_TYPE_HEADSET;
+			goto report;
+		}
+     #else
+		if (wcd_is_special_headset(mbhc)) {
+			pr_debug("%s: Special headset found %d\n",
+					__func__, plug_type);
+			plug_type = MBHC_PLUG_TYPE_HEADSET;
+			goto report;
+		}
+     #endif
 	}
 
 report:
@@ -1171,6 +1381,12 @@ static void wcd_mbhc_detect_plug_type(struct wcd_mbhc *mbhc)
 	result1 = snd_soc_read(codec, MSM8X16_WCD_A_ANALOG_MBHC_BTN_RESULT);
 	result2 = snd_soc_read(codec,
 			MSM8X16_WCD_A_ANALOG_MBHC_ZDET_ELECT_RESULT);
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+pr_debug("%s: zte add result1 %x, result2 %x\n", __func__,
+						result1, result2);
+pr_debug("%s: zte add timeout_result %x\n", __func__,
+						timeout_result);
+#endif
 
 	if (!timeout_result) {
 		pr_debug("%s No btn press interrupt\n", __func__);
@@ -1226,7 +1442,11 @@ exit:
 			 __func__, plug_type);
 	if (plug_type == MBHC_PLUG_TYPE_HEADSET ||
 			plug_type == MBHC_PLUG_TYPE_HEADPHONE) {
+#if defined(CONFIG_ZTE_HEADSET_GPIO)   
+
+#else
 		wcd_mbhc_find_plug_and_report(mbhc, plug_type);
+#endif	
 		wcd_schedule_hs_detect_plug(mbhc, &mbhc->correct_plug_swch);
 	} else {
 		wcd_schedule_hs_detect_plug(mbhc, &mbhc->correct_plug_swch);
@@ -1262,6 +1482,15 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 
 	if ((mbhc->current_plug == MBHC_PLUG_TYPE_NONE) &&
 	    detection_type) {
+
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+       if(mbhc->hph_switch > 0 )
+       {
+	gpio_direction_output(mbhc->hph_switch, 0);//if the headset plug out,so switch to PMIC
+	dev_dbg(codec->dev, "%s: if the headset plug out,so switch to PMIC int swch irq handler \n",
+			__func__);		
+	 }	
+#endif	
 		/* Make sure MASTER_BIAS_CTL is enabled */
 		snd_soc_update_bits(codec,
 				    MSM8X16_WCD_A_ANALOG_MASTER_BIAS_CTL,
@@ -1293,6 +1522,18 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 		wcd_mbhc_detect_plug_type(mbhc);
 	} else if ((mbhc->current_plug != MBHC_PLUG_TYPE_NONE)
 			&& !detection_type) {
+#if 0
+pr_debug("%s: zte delte the qcom orignal  remove shcem\n", __func__);
+#else
+
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+       if(mbhc->hph_switch > 0)
+       {
+	gpio_direction_output(mbhc->hph_switch, 0);//if the headset plug out,so switch to PMIC
+	dev_dbg(codec->dev, "%s: if the headset plug out,so switch to PMIC int swch irq handler \n",
+			__func__);		
+	 }	
+#endif	
 		/* Disable external voltage source to micbias if present */
 		if (mbhc->mbhc_cb && mbhc->mbhc_cb->enable_mb_source)
 			mbhc->mbhc_cb->enable_mb_source(codec, false);
@@ -1349,7 +1590,15 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 				0x30, 0x30);
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_LINEOUT);
 		}
-	} else if (!detection_type) {
+#endif
+	} 
+#if 0
+else if((mbhc->current_plug == MBHC_PLUG_TYPE_NONE) && !detection_type){
+pr_debug("%s: zte delte the qcom orignal  remove shcem case 2\n", __func__);
+//do nothing ,only for make the cource well,weiguohua add
+}
+#endif
+	else if (!detection_type) {
 		/* Disable external voltage source to micbias if present */
 		if (mbhc->mbhc_cb && mbhc->mbhc_cb->enable_mb_source)
 			mbhc->mbhc_cb->enable_mb_source(codec, false);
@@ -1357,6 +1606,14 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 		snd_soc_update_bits(codec,
 				MSM8X16_WCD_A_ANALOG_MBHC_FSM_CTL,
 				0xB0, 0x00);
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+       if(mbhc->hph_switch > 0)
+       {
+	gpio_direction_output(mbhc->hph_switch, 0);//if the headset plug out,so switch to PMIC
+	dev_dbg(codec->dev, "%s: if the headset plug out,so switch to PMIC int swch irq handler \n",
+			__func__);		
+	 }	
+#endif	
 	}
 
 	mbhc->in_swch_irq_handler = false;
@@ -1368,8 +1625,11 @@ static irqreturn_t wcd_mbhc_mech_plug_detect_irq(int irq, void *data)
 {
 	int r = IRQ_HANDLED;
 	struct wcd_mbhc *mbhc = data;
-
+#ifdef    OPEN_HEADSET_REPORT_LOG   
+	pr_info("%s: enter\n", __func__);
+#else
 	pr_debug("%s: enter\n", __func__);
+#endif
 	if (unlikely(wcd9xxx_spmi_lock_sleep() == false)) {
 		pr_warn("%s: failed to hold suspend\n", __func__);
 		r = IRQ_NONE;
@@ -1404,7 +1664,8 @@ static int wcd_mbhc_get_button_mask(u16 btn)
 		break;
 	default:
 		break;
-	}
+	}	
+	pr_info("%s: mask  btn,%d,mask 0x%x\n", __func__,btn,mask);
 	return mask;
 }
 
@@ -1638,8 +1899,11 @@ irqreturn_t wcd_mbhc_btn_press_handler(int irq, void *data)
 	u16 result1;
 	int mask;
 	unsigned long msec_val;
-
+#ifdef    OPEN_HEADSET_REPORT_LOG   
+	pr_info("%s: enter\n", __func__);
+#else
 	pr_debug("%s: enter\n", __func__);
+#endif
 	WCD_MBHC_RSC_LOCK(mbhc);
 	/* send event to sw intr handler*/
 	mbhc->is_btn_press = true;
@@ -1722,8 +1986,13 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 	if (mbhc->buttons_pressed & WCD_MBHC_JACK_BUTTON_MASK) {
 		ret = wcd_cancel_btn_work(mbhc);
 		if (ret == 0) {
-			pr_debug("%s: Reporting long button release event\n",
+		#ifdef    OPEN_HEADSET_REPORT_LOG   	
+			pr_info("%s: Reporting long button release event\n",
 				 __func__);
+		#else
+			pr_debug("%s: Reporting long button release event\n",
+				 __func__);		
+		#endif
 			wcd_mbhc_jack_report(mbhc, &mbhc->button_jack,
 					0, mbhc->buttons_pressed);
 		} else {
@@ -1731,8 +2000,13 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 				pr_debug("%s: Switch irq kicked in, ignore\n",
 					__func__);
 			} else {
-				pr_debug("%s: Reporting btn press\n",
+		#ifdef    OPEN_HEADSET_REPORT_LOG 			
+				pr_info("%s: Reporting btn press\n",
 					 __func__);
+		#else
+				pr_debug("%s: Reporting btn press\n",
+					 __func__);		
+		#endif
 				wcd_mbhc_jack_report(mbhc,
 						     &mbhc->button_jack,
 						     mbhc->buttons_pressed,
@@ -1808,7 +2082,57 @@ static irqreturn_t wcd_mbhc_hphr_ocp_irq(int irq, void *data)
 	}
 	return IRQ_HANDLED;
 }
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+static irqreturn_t zte_headset_gpio_plug_detect_irq(int irq, void *data)
+{
+	int r = IRQ_HANDLED;
+	struct wcd_mbhc *mbhc = data;
+	pr_debug("%s: enter\n", __func__);
 
+	if (unlikely(wcd9xxx_spmi_lock_sleep() == false)) {
+		pr_warn("%s: failed to hold suspend\n", __func__);
+		r = IRQ_NONE;
+	} else {
+		/* Call handler */
+	schedule_delayed_work(&mbhc->headset_gpio_detect_work, msecs_to_jiffies(150));	
+		wcd9xxx_spmi_unlock_sleep();
+	}
+	pr_debug("%s: leave %d\n", __func__, r);
+	return r;
+}
+
+static irqreturn_t zte_headset_irq_handler(int irq, void *dev_id) //iVIZM
+{
+    return IRQ_WAKE_THREAD;
+}
+
+static int zte_headset_gpio_detect_setup_irq(struct wcd_mbhc *mbhc)
+{
+	int ret = 0;
+
+	if (mbhc->gpio) {
+		ret = request_threaded_irq(mbhc->gpio_irq, zte_headset_irq_handler,
+					   zte_headset_gpio_plug_detect_irq,
+					   (
+					    IRQF_TRIGGER_RISING| IRQF_ONESHOT
+					    ),
+					   "headset_detect", mbhc);
+
+	  
+		if (ret) {
+			pr_err("%s: Failed to request gpio irq %d\n", __func__,
+			       mbhc->gpio_irq);
+		}
+		//else {
+		//	ret = enable_irq_wake(mbhc->gpio_irq);
+		//	if (ret)
+		//	pr_err("%s: Failed to enable wake up irq %d\n",
+		//		       __func__, mbhc->gpio_irq);
+		//}
+	} 
+	return ret;
+}
+#endif
 static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 {
 	int ret = 0;
@@ -1846,6 +2170,10 @@ static int wcd_mbhc_initialise(struct wcd_mbhc *mbhc)
 	wcd9xxx_spmi_enable_irq(mbhc->intr_ids->mbhc_btn_release_intr);
 	wcd9xxx_spmi_enable_irq(mbhc->intr_ids->hph_left_ocp);
 	wcd9xxx_spmi_enable_irq(mbhc->intr_ids->hph_right_ocp);
+
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+ //  enable_irq_wake(mbhc->gpio_irq);//weiguohua add it for delay  interrupt valid
+#endif
 	pr_debug("%s: leave\n", __func__);
 	return ret;
 }
@@ -1989,10 +2317,19 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 	int hph_swh = 0;
 	int gnd_swh = 0;
 	struct snd_soc_card *card = codec->card;
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+	struct pinctrl *pinctrl;
+#endif
 	const char *hph_switch = "qcom,msm-mbhc-hphl-swh";
 	const char *gnd_switch = "qcom,msm-mbhc-gnd-swh";
 	const char *ext1_cap = "qcom,msm-micbias1-ext-cap";
 	const char *ext2_cap = "qcom,msm-micbias2-ext-cap";
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+       const char  *zte_headset_gpio ="qcom,headset_detect_irq";
+#endif
+	#ifdef ZTE_HEADSET_STATE_PROC
+	struct proc_dir_entry *refresh;      //haoweiwei add  
+	#endif
 
 	pr_debug("%s: enter\n", __func__);
 
@@ -2017,6 +2354,107 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 		(of_property_read_bool(card->dev->of_node, ext2_cap) ?
 		MICBIAS_EXT_BYP_CAP : MICBIAS_NO_EXT_BYP_CAP);
 
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+pr_debug("%s: zte debug goto here : %d\n", __func__,
+						0);	
+	mbhc->gpio = of_get_named_gpio(card->dev->of_node,
+					zte_headset_gpio, 0);
+	if (mbhc->gpio < 0) {
+		pr_err("property %s in node %s not found %d\n",
+			"qcom,headset_gpio_detect", card->dev->of_node->full_name,
+			mbhc->gpio);
+	}
+    else {
+		if (!gpio_is_valid(mbhc->gpio)) {
+			pr_err("%s: Invalid gpio: %d", __func__,
+						mbhc->gpio);
+			return -EINVAL;
+		}
+		else{
+			pr_err("%s:zte get heaset  gpio: %d", __func__,
+						mbhc->gpio);			   
+		}
+		//gpio_free(pdata->headset_gpio_detect);
+		ret = gpio_request(mbhc->gpio, "headset_zte_gpio");
+		if(ret) {
+		pr_err("gpio request failed");
+                 gpio_free(mbhc->gpio);
+             }
+		else{
+		gpio_direction_input(mbhc->gpio);	
+		pr_err( "zte headset gpio request success\n");	
+
+             gpio_export(mbhc->gpio,0);
+		
+		}
+
+		pinctrl = devm_pinctrl_get(card->dev);
+		if (IS_ERR(pinctrl)) {
+			pr_err("%s: Unable to get pinctrl handle\n", __func__);
+			return -EINVAL;
+		}
+		pinctrl_info_headset_gpio.pinctrl = pinctrl;
+		/* get pinctrl handle for cross det pin*/
+		pinctrl_info_headset_gpio.headset_gpio_det_sus = pinctrl_lookup_state(pinctrl,
+							"headset_gpio_det_sus");
+		if (IS_ERR(pinctrl_info_headset_gpio.headset_gpio_det_sus)) {
+			pr_err("%s: Unable to get headset pinctrl disable handle\n",
+								  __func__);
+			return -EINVAL;
+		}
+		pinctrl_info_headset_gpio.headset_gpio_det_act = pinctrl_lookup_state(pinctrl,
+							"headset_gpio_det_act");
+		if (IS_ERR(pinctrl_info_headset_gpio.headset_gpio_det_act)) {
+			pr_err("%s: Unable to get headset pinctrl active handle\n",
+								 __func__);
+			return -EINVAL;
+		}	
+
+	    ret = pinctrl_select_state(pinctrl_info_headset_gpio.pinctrl,
+				pinctrl_info_headset_gpio.headset_gpio_det_act);
+	    if (ret < 0) {
+		pr_err("failed to configure the gpio\n");
+		return ret;
+	    }		
+          else{
+                pr_err("%s: zte success set the pinctl", __func__);	
+           }	  
+   }
+
+	mbhc->hph_switch = of_get_named_gpio(card->dev->of_node,
+					"qcom,hph_switch", 0);
+	if (mbhc->hph_switch < 0) {
+		pr_err("property %s in node %s not found %d\n",
+			"hph_switch", card->dev->of_node->full_name,
+			mbhc->hph_switch);
+	}
+    else {
+		if (!gpio_is_valid(mbhc->hph_switch)) {
+			pr_err("%s: Invalid gpio: %d", __func__,
+						mbhc->hph_switch);
+			return -EINVAL;
+		}
+		else{
+			pr_err("%s:zte get hph_switch  gpio: %d\n", __func__,
+						mbhc->hph_switch);			   
+		}
+		//gpio_free(pdata->headset_gpio_detect);
+		ret = gpio_request(mbhc->hph_switch, "zte_hph_switch");
+		if(ret) {
+		pr_err("zte_hph_switch gpio request failed\n");
+                 gpio_free(mbhc->hph_switch);
+             }
+		else{
+		gpio_direction_output(mbhc->hph_switch, 0);//switch to PMIC default
+		pr_err( "zte_hph_switch gpio request success\n");	
+
+             gpio_export(mbhc->hph_switch,0);
+			 	
+		}
+   }
+	
+#endif
+
 	mbhc->in_swch_irq_handler = false;
 	mbhc->current_plug = MBHC_PLUG_TYPE_NONE;
 	mbhc->is_btn_press = false;
@@ -2030,6 +2468,10 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 	mbhc->btn_press_intr = false;
 	mbhc->is_hs_recording = false;
 
+
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+	  mbhc->gpio_level_insert = 0; //0 is low level is insert, 1 is high level is plug out
+#endif
 	if (mbhc->intr_ids == NULL) {
 		pr_err("%s: Interrupt mapping not provided\n", __func__);
 		return -EINVAL;
@@ -2064,7 +2506,9 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 				  wcd_mbhc_fw_read);
 		INIT_DELAYED_WORK(&mbhc->mbhc_btn_dwork, wcd_btn_lpress_fn);
 	}
-
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+INIT_DELAYED_WORK(&mbhc->headset_gpio_detect_work, zte_headset_gpio_handler);
+#endif
 	/* Register event notifier */
 	mbhc->nblock.notifier_call = wcd_event_notify;
 	ret = msm8x16_register_notifier(codec, &mbhc->nblock);
@@ -2072,10 +2516,26 @@ int wcd_mbhc_init(struct wcd_mbhc *mbhc, struct snd_soc_codec *codec,
 		pr_err("%s: Failed to register notifier %d\n", __func__, ret);
 		return ret;
 	}
+	#ifdef ZTE_HEADSET_STATE_PROC
+	refresh = proc_create("driver/hs_state", 0644, NULL, &hs_state_operations);	
+	if (!refresh) {
+		printk("weiguohua creat file node failed $$$\n");
+		goto err;		
+	}
+    #endif
 
 	init_waitqueue_head(&mbhc->wait_btn_press);
 	mutex_init(&mbhc->codec_resource_lock);
 
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+	mutex_init(&mbhc->headset_gpio_detect_mutex);
+   if(mbhc->gpio)
+	mbhc->gpio_irq = gpio_to_irq(mbhc->gpio);
+   pr_err("%s: the zte headset gpio_irq is %d\n", __func__,mbhc->gpio_irq);
+		ret = zte_headset_gpio_detect_setup_irq(mbhc);
+              disable_irq(mbhc->gpio_irq);  //weiguohua add for wait for init complete
+#endif
+	
 	ret = wcd9xxx_spmi_request_irq(mbhc->intr_ids->mbhc_sw_intr,
 				  wcd_mbhc_mech_plug_detect_irq,
 				  "mbhc sw intr", mbhc);
@@ -2179,6 +2639,10 @@ void wcd_mbhc_deinit(struct wcd_mbhc *mbhc)
 	wcd9xxx_spmi_free_irq(mbhc->intr_ids->hph_right_ocp, mbhc);
 	msm8x16_unregister_notifier(codec, &mbhc->nblock);
 	mutex_destroy(&mbhc->codec_resource_lock);
+
+#ifdef   CONFIG_ZTE_HEADSET_GPIO
+	mutex_destroy(&mbhc->headset_gpio_detect_mutex);
+#endif
 }
 EXPORT_SYMBOL(wcd_mbhc_deinit);
 

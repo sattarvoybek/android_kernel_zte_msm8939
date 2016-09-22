@@ -16,10 +16,16 @@
 		qcom,model = "msm8939-snd-card-mtp";
 		qcom,msm-snd-card-id = <0>;
 		qcom,msm-codec-type = "internal";
-		qcom,msm-ext-pa = "primary";
-		qcom,msm-mbhc-hphl-swh = <0>;
+  //zte weiguohua modify for open qcom quard i2s interface 20141030
+             //qcom,msm-ext-pa = "primary";
+		qcom,msm-ext-pa = "primary",
+		                             "quaternary";
+//zte weiguohua modify for open qcom quard i2s interface  20141030
+        qcom,msm-mclk-freq = <9600000>;//zte weiguohua add it for clock
+		qcom,msm-mbhc-hphl-swh = <1>;//zte weiguohua modify from 0 to 1 begin  20140811
 		qcom,msm-mbhc-gnd-swh = <0>;
-		qcom,msm-micbias1-ext-cap;
+		//qcom,msm-micbias1-ext-cap;//zte weiguohua modify it for micbias ext cap config begin  20141204
+		//qcom,msm-micbias2-ext-cap;//zte weiguohua modify it for micbias ext cap config  begin 20141204
 		qcom,msm-hs-micbias-type = "internal";
 		qcom,audio-routing =
 			"RX_BIAS", "MCLK",
@@ -33,13 +39,27 @@
 			"AMIC3", "MIC BIAS External";
 		pinctrl-names = "cdc_lines_act",
 				"cdc_lines_sus",
+				"cdc_lines_quat_ext_act",  //"cdc_lines_sec_ext_act",  //weiguohua hifi
+				"cdc_lines_quat_ext_sus",  //"cdc_lines_sec_ext_sus",  //weiguohua hifi
 				"cross_conn_det_act",
-				"cross_conn_det_sus";
+				"cross_conn_det_sus",
+				"headset_gpio_det_act",
+				"headset_gpio_det_sus";
 		pinctrl-0 = <&cdc_pdm_lines_act>;
 		pinctrl-1 = <&cdc_pdm_lines_sus>;
-		pinctrl-2 = <&cross_conn_det_act>;
-		pinctrl-3 = <&cross_conn_det_sus>;
-		qcom,cdc-us-euro-gpios = <&msm_gpio 120 0>;
+		pinctrl-2 = <&cdc_pdm_lines_act &ext_cdc_tlmm_lines_act &cdc_ext_pa_ws_act>;//weiguohua hifi
+		//pinctrl-2 = <&cdc_pdm_lines_act &cdc_ext_pa_act
+		//				&cdc_ext_pa_ws_act>;
+		pinctrl-3 = <&cdc_pdm_lines_sus &ext_cdc_tlmm_lines_sus &cdc_ext_pa_ws_sus>;  //weiguohua hifi
+		//pinctrl-3 = <&cdc_pdm_lines_sus &cdc_ext_pa_sus
+		//				&cdc_ext_pa_ws_sus>;
+		pinctrl-4 = <&cross_conn_det_act>;
+		pinctrl-5 = <&cross_conn_det_sus>;
+		pinctrl-6= <&headset_gpio_det_act>;
+		pinctrl-7 = <&headset_gpio_det_sus>;		
+		//qcom,cdc-us-euro-gpios = <&msm_gpio 120 0>;   //zte weiguohua modify for not use the switch gpio begin  20140821
+		qcom,headset_detect_irq = <&msm_gpio 31 0>;  //weiguohua add it begin
+		qcom,hph_switch  = <&msm_gpio 3 0>;//weiguohua add it begin
 		asoc-platform = <&pcm0>, <&pcm1>, <&voip>, <&voice>,
 				<&loopback>, <&compress>, <&hostless>,
 				<&afe>, <&lsm>, <&routing>, <&lpa>;

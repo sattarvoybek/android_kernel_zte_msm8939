@@ -377,6 +377,10 @@ config SND_SOC_MSM8X10_WCD
 config SND_SOC_MSM8X16_WCD
 	tristate
 
+#weiguohua add it for hifi chip requirement,20141030
+config ZTE_AKM_HIFI
+    bool "zte add AKM HIFI CHIP AKM4375"	
+
 config SND_SOC_WCD_CPE
 	tristate
 	default y if SND_SOC_WCD9330=y

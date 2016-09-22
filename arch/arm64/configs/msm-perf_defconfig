@@ -504,6 +504,13 @@ CONFIG_CRYPTO_AES_ARM64_CE_BLK=y
 CONFIG_CRYPTO_AES_ARM64_NEON_BLK=y
 CONFIG_QMI_ENCDEC=y
 CONFIG_MSM_PERFORMANCE=y
+#zte weiguohua add it for zte headset gpio detect requirement,begin20141030
+CONFIG_ZTE_HEADSET_GPIO=y
+#zte weiguohua add it for zte headset gpio detect requirement,end 20141030
+#zte weiguohua add it for hifi chip requirement,begin 20141030
+CONFIG_ZTE_AKM_HIFI=y
+CONFIG_ZTE_OPEN_QCOM_I2S_QUARD=y
+#zte weiguohua add it for hifi chip requirement,end 20141030
 CONFIG_MOBICORE_SUPPORT=m
 CONFIG_MOBICORE_API=m
 CONFIG_MSM_CORE_CTL_HELPER=y
