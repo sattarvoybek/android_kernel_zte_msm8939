@@ -1528,5 +1528,55 @@
 				bias-pull-down;
 			};
 		};
+/*ZTE-MODIFY wanghaifei add pinctrl for sensor 20141107, start */
+		breathing_led_en{
+			qcom,pins = <&gp 2>;
+			qcom,pin-func = <0>;
+			qcom,num-grp-pins = <1>;
+			label = "breathing_led_en";
+
+			breathing_led_en: active {
+				drive-strength = <2>;
+				bias-disable;
+				output-high;
+			};
+		};
+		cwstm_mcu{
+			qcom,pins = <&gp 8>, <&gp 9>, <&gp 20>, <&gp 120>, <&gp 36>, <&gp 113>, <&gp 115>;
+			qcom,pin-func = <0>;
+			qcom,num-grp-pins = <7>;
+			label = "cwstm_mcu";
+
+			cwstm_mcu_active: active {
+				drive-strength = <2>;
+				bias-disable;
+			};
+		};
+
+		hall_int{
+			qcom,pins = <&gp 1>;
+			qcom,pin-func = <0>;
+			qcom,num-grp-pins = <1>;
+			label = "hall_gpio";
+			hall_gpio_irq: hall_gpio_irq {
+				   drive-strength = <2>;
+				   bias-pull-up;
+				   //output-high;
+			};
+		};
+/*ZTE-MODIFY wanghaifei add pinctrl for sensor 20141107, end */
+
+		/*ZTE_MODIFY, hww add hw version detect, start*/
+		zte_board_hwversion_pin {
+			qcom,pins = <&gp 114>, <&gp 51>, <&gp 52>;
+			qcom,pin-func = <0>;
+			qcom,num-grp-pins = <3>;
+			label = "zte_board_hwversion";
+			zte_board_hwversion: zte_board_hwversion {
+				drive-strength = <2>;
+				bias-pull-none;
+			};
+		};
+		/*ZTE_MODIFY, hww add hw version detect, end*/
 	};
 };

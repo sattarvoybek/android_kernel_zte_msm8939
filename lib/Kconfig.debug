@@ -13,6 +13,14 @@ config PRINTK_TIME
 
 	  The behavior is also controlled by the kernel command line
 	  parameter printk.time=1. See Documentation/kernel-parameters.txt
+	  
+#ZTE_MODIFY, zhangbo change for printk time msg, start
+config PRINTK_TIME_WALL_TIME
+    bool "Show wall time information on printk"
+    depends on 	PRINTK_TIME
+#ZTE_MODIFY, zhangbo change for printk time msg, end	
+config F30_PLATFORM_8916
+	bool "this is a temp config, delete it after fix lcd problem"
 
 config DEFAULT_MESSAGE_LOGLEVEL
 	int "Default message log level (1-7)"

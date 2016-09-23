@@ -37,6 +37,12 @@ int __read_mostly timekeeping_suspended;
 /* Flag for if there is a persistent clock on this platform */
 bool __read_mostly persistent_clock_exist = false;
 
+
+#ifdef CONFIG_PRINTK_TIME_WALL_TIME
+u64 __read_mostly printk_time_wall_time_offset = 0;
+#endif
+
+
 static inline void tk_normalize_xtime(struct timekeeper *tk)
 {
 	while (tk->xtime_nsec >= ((u64)NSEC_PER_SEC << tk->shift)) {
@@ -1733,3 +1739,35 @@ void xtime_update(unsigned long ticks)
 	do_timer(ticks);
 	write_sequnlock(&jiffies_lock);
 }
+
+
+#ifdef CONFIG_PRINTK_TIME_WALL_TIME
+u64 local_clk_to_walltime(u64 localtime)
+{
+	struct timekeeper *tk = &timekeeper;
+	unsigned long seq;
+	s64 nsecs = 0;
+	u64 ret = printk_time_wall_time_offset;
+
+	if(localtime < 15000000000)
+		return localtime;
+
+	do {
+		seq = read_seqcount_begin(&timekeeper_seq);
+
+		if (unlikely(timekeeping_suspended)) {
+			ret =localtime + printk_time_wall_time_offset;
+			continue;
+		}
+		
+		ret = tk->xtime_sec;
+		ret *= 1000000000;
+		nsecs = timekeeping_get_ns(tk);
+		ret += nsecs;
+		printk_time_wall_time_offset = ret - localtime;
+
+	} while (read_seqcount_retry(&timekeeper_seq, seq));
+
+	return ret;
+}
+#endif

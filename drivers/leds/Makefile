@@ -63,3 +63,7 @@ obj-$(CONFIG_LEDS_DAC124S085)		+= leds-dac124s085.o
 
 # LED Triggers
 obj-$(CONFIG_LEDS_TRIGGERS)		+= trigger/
+#ZTE-MODIFY wanghaifei add led control 20141022 start
+obj-$(CONFIG_GPIO_MODEM_LED)		+= leds-gpio-modem.o
+obj-$(CONFIG_AW2013_BREATHING_LED)	+= leds-aw2013.o
+#ZTE-MODIFY wanghaifei 20141022 end 

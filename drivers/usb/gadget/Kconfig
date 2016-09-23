@@ -1119,4 +1119,11 @@ config RMNET_SDIO_SMD_DATA_CHANNEL
        help
 	  Data SMD channel for transferring network data
 
+#/**  ZTE_MODIFY  zhangjing add for one udisk 2014-5-8 stard */
+config USB_MAC
+    bool  "USB_MAC"
+    help
+         CDROM IN MAC OS
+	 support to the android gadget. 
+#/**  ZTE_MODIFY  zhangjing add for one udisk 2014-5-8 end */
 endif # USB_GADGET

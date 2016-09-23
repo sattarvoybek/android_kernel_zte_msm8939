@@ -518,6 +518,21 @@ config LEDS_BLINKM
 	  This option enables support for the BlinkM RGB LED connected
 	  through I2C. Say Y to enable support for the BlinkM LED.
 
+# ZTE-MODIFY wanghaifei 20141022 start , add for led control    
+config GPIO_MODEM_LED
+        tristate "LED Support for modem control"
+        default n
+        help
+          This option enables support for LEDs controled by modem subsystem.    
+
+config AW2013_BREATHING_LED
+        tristate "AW2013 Breathing LED Support"
+        default n
+        help
+          This option enables support for AW2013 breathing LED.    
+# ZTE-MODIFY wanghaifei 20141022, end
+
+
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
 

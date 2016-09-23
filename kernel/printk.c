@@ -55,6 +55,11 @@
 extern void printascii(char *);
 #endif
 
+#ifdef CONFIG_PRINTK_TIME_WALL_TIME
+#include <linux/rtc.h>
+u64 local_clk_to_walltime(u64 localtime);
+#endif
+
 /* printk's without a loglevel use this.. */
 #define DEFAULT_MESSAGE_LOGLEVEL CONFIG_DEFAULT_MESSAGE_LOGLEVEL
 
@@ -458,10 +463,19 @@ static void log_store(int facility, int level,
 	msg->level = level & 7;
 	msg->flags = flags & 0x1f;
 	LOG_MAGIC(msg);
+	
+	#ifdef CONFIG_PRINTK_TIME_WALL_TIME
+	if (ts_nsec > 0)
+		msg->ts_nsec = ts_nsec;
+	else
+		msg->ts_nsec = local_clk_to_walltime(local_clock());
+	#else
 	if (ts_nsec > 0)
 		msg->ts_nsec = ts_nsec;
 	else
 		msg->ts_nsec = local_clock();
+	#endif
+	
 	memset(log_dict(msg) + dict_len, 0, pad_len);
 	msg->len = sizeof(struct log) + text_len + dict_len + pad_len;
 
@@ -1021,6 +1035,32 @@ module_param_named(time, printk_time, bool, S_IRUGO | S_IWUSR);
 
 static size_t print_time(u64 ts, char *buf)
 {
+
+#ifdef CONFIG_PRINTK_TIME_WALL_TIME
+	struct timespec walltime;
+	struct rtc_time tm;
+	unsigned long rem_nsec;
+
+	if (!printk_time)
+		return 0;
+
+	rem_nsec = do_div(ts, 1000000000);
+
+	if (!buf)
+		return snprintf(NULL, 0, "[%5lu.000000] ", (unsigned long)ts);
+
+	if(ts >=15) {
+		walltime.tv_nsec = rem_nsec;
+		walltime.tv_sec = ts;
+		
+		rtc_time_to_tm(walltime.tv_sec, &tm);
+		return sprintf(buf, "[%02d-%02d %02d:%02d:%02d.%03d] ",
+						 tm.tm_mon + 1, tm.tm_mday,tm.tm_hour, tm.tm_min, tm.tm_sec, (int)(walltime.tv_nsec/1000000));
+	}
+	else
+		return sprintf(buf, "[%5lu.%06lu] ",
+			       (unsigned long)ts, rem_nsec / 1000);
+#else
 	unsigned long rem_nsec;
 
 	if (!printk_time)
@@ -1033,6 +1073,8 @@ static size_t print_time(u64 ts, char *buf)
 
 	return sprintf(buf, "[%5lu.%06lu] ",
 		       (unsigned long)ts, rem_nsec / 1000);
+#endif
+
 }
 
 static size_t print_prefix(const struct log *msg, bool syslog, char *buf)
@@ -1736,7 +1778,13 @@ static bool cont_add(int facility, int level, const char *text, size_t len)
 		cont.facility = facility;
 		cont.level = level;
 		cont.owner = current;
+		
+		#ifdef CONFIG_PRINTK_TIME_WALL_TIME
+		cont.ts_nsec = local_clk_to_walltime(local_clock());
+		#else
 		cont.ts_nsec = local_clock();
+		#endif
+		
 		cont.flags = 0;
 		cont.cons = 0;
 		cont.flushed = false;
@@ -3230,3 +3278,37 @@ void show_regs_print_info(const char *log_lvl)
 }
 
 #endif
+
+
+int zte_log_switch = 1;
+int zte_log_mask = 0xFFFF;
+
+static int __init log_switch_setup(char *str) 
+{
+	if(get_option(&str, &zte_log_switch))
+	{
+	    printk("zte_log_switch = %d\n", zte_log_switch);
+	    return 0;
+	}
+	else
+	{
+	    printk("zte_log_switch get failed \n");
+	    return -EINVAL;
+	}
+}
+early_param("zte_log_switch", log_switch_setup);
+
+static int __init log_mask_setup(char *str) 
+{
+	if(get_option(&str, &zte_log_mask))
+         {
+	    printk("zte_log_mask = %d\n", zte_log_mask);
+	    return 0;
+	  }
+	else
+	  {
+	    printk("zte_log_mask get failed \n");
+	    return -EINVAL;
+	  }
+}
+early_param("zte_modu_mask", log_mask_setup);

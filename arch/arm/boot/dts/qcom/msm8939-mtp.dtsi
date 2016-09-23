@@ -158,7 +158,51 @@
                         akm4375,gpio-avdd = <&msm_gpio 21 0x00>;
 		};
 /*zte weiguohua add it for akm hifi chip*/
-	};
+         	};
+/*ZTE_MODIFY wanghaifei add sensor power control 20140818 start */
+        sensor_power {
+                compatible = "sensor,power";
+                vdd-supply = <&pm8916_l17>;
+                vio-supply = <&pm8916_l6>;
+               };  
+/*ZTE_MODIFY wanghaifei 20140818 end*/	
+/*ZTE_MODIFY wanghaifei add hall sensor 20141205 start */
+		hall_ic{
+			   compatible = "hall,hall-ic";
+			   pinctrl-names = "default";
+			   pinctrl-0 = <&hall_gpio_irq>;
+			   gpios = <&msm_gpio 1 0>; 
+	       };
+/*ZTE_MODIFY wanghaifei add hall sensor 20141205 end */
+
+	i2c@78b6000 { /* BLSP1 QUP2 */
+/*ZTE-MODIFY wanghaifei add breathing led support 20141107, start*/
+		aw2013@45{
+			compatible = "awinic,aw2013";
+			reg = <0x45>;
+			//gpios = <&msm_gpio 16 0x00>;
+			pinctrl-names = "breathing_en";
+			pinctrl-0 = <&breathing_led_en>;
+		};
+/*ZTE-MODIFY wanghaifei add breathing led support 20141107, end*/
+/*ZTE-MODIFY wanghaifei add cwyee sensor hub 20141112, start*/
+		cwstm32@3a{
+			compatible = "cwstm,cwstm32";
+			reg = <0x3a>;
+			//interrupt-parent = <&msm_gpio>;
+			//interrupts = <>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&cwstm_mcu_active>;
+			cwstm,irq-gpio = <&msm_gpio 9 0x00>;
+			cwstm,wakeup-gpio = <&msm_gpio 120 0x00>;
+			cwstm,reset-gpio = <&msm_gpio 20 0x00>;
+			cwstm,boot-gpio = <&msm_gpio 8 0x00>;
+			cwstm,compass-gpio = <&msm_gpio 36 0x00>;
+			cwstm,acc-gpio = <&msm_gpio 115 0x00>;
+			cwstm,als-gpio = <&msm_gpio 113 0x00>;
+		};
+/*ZTE-MODIFY wanghaifei add cwyee sensor hub support 20141112, end*/
+
 		mpu6050@68 { /* Gyroscope and accelerometer sensor combo */
 			compatible = "invn,mpu6050";
 			reg = <0x68>;
@@ -479,3 +523,38 @@
 		qcom,cpr-up-threshold = <0>;
 		qcom,cpr-down-threshold = <8>;
 };
+/*ZTE_MODIFY, hww add hw version detect, start*/
+&soc {
+        zte-board-hwversion {
+                compatible = "zte,board-hwversion";
+                status = "okay";
+                pinctrl-names = "default";
+                pinctrl-0 = <&zte_board_hwversion>;
+                num-gpios = <3>;
+                board-hwversions-gpios = <&msm_gpio 114 0>, <&msm_gpio 51 0>, <&msm_gpio 52 0>;
+                board-info-value = <0 1 2 3 4 5 6 7>;
+                board-info-version = "wrbA", "wrbA-JAPAN8916", "wrbA-JAPAN8939","wrbA-TAIWAN-tuner", "wrbA-ONCELL", "wrbA-THAILAND","wrbA-EUROPE", "wrbA-AUSTRALIA";
+        };
+};
+/*ZTE_MODIFY, hww add hw version detect, end*/
+
+/*ZTE_MODIFY, according to doumingming ,zhangjing add for smb1350 charge, start*/
+&pm8916_chg {
+	status = "ok";
+	qcom,use-external-charger;
+};
+
+&pm8916_bms {
+	status = "ok";
+	qcom,disable-bms;
+};
+/*ZTE_MODIFY, according to doumingming ,zhangjing add for smb1350 charge, end*/
+/*ZTE_MODIFY, zhangjing add for otg, start*/
+&usb_otg {
+	qcom,hsusb-otg-mode = <3>;
+	qcom,usbid-gpio = <&msm_gpio 110 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&usbid_default>;
+	vbus_otg-supply = <&smb1360_otg_supply>;
+};
+/*ZTE_MODIFY, zhangjing add for otg, end*/
